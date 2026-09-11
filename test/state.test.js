@@ -35,6 +35,15 @@ test("backoff stops at half an hour", () => {
   expect(nextDelaySeconds(4, 300, 9)).toBe(1800);
 });
 
+test("backoff never retries sooner than a success would", () => {
+  // A 3600s interval capped at 1800 would poll twice as often on failure as on
+  // success — the ceiling has to yield to an interval above it.
+  expect(nextDelaySeconds(4, 3600, 0)).toBeGreaterThanOrEqual(3600);
+  expect(nextDelaySeconds(4, 3600, 3)).toBeGreaterThanOrEqual(3600);
+  expect(nextDelaySeconds(4, 1200, 0)).toBe(1200);
+  expect(nextDelaySeconds(4, 1200, 3)).toBe(1800);
+});
+
 test("an exhausted quota waits an hour, nothing smaller can change it", () => {
   expect(nextDelaySeconds(5, 300, 0)).toBe(3600);
 });

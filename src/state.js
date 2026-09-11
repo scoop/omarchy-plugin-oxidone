@@ -54,7 +54,10 @@ function nextDelaySeconds(code, intervalSeconds, failures) {
     return interval;
   }
   var doublings = Math.min(attempts, 3);
-  return Math.min(interval * Math.pow(2, doublings), 1800);
+  // The ceiling is 1800s, but it must never fall below the configured interval:
+  // a 3600s poll whose first failure retried after 1800s would back off to
+  // sooner than a success, which is not a backoff at all.
+  return Math.min(interval * Math.pow(2, doublings), Math.max(interval, 1800));
 }
 
 // oxidone prints {"error":{"kind","message"}} on stderr. The kind is worth
