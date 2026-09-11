@@ -69,8 +69,10 @@ Item {
             return;
         }
         if (!versionChecked) {
-            root.versionEpoch = root.epoch;
-            versionProc.start();
+            if (!versionProc.running) {
+                root.versionEpoch = root.epoch;
+                versionProc.start();
+            }
             return;
         }
         if (!versionOk) {

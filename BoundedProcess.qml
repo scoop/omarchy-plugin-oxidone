@@ -55,6 +55,13 @@ Process {
     }
 
     function start() {
+        // Restarting a live process would blank the bookkeeping out from under
+        // the child that is still running: its eventual exit would then emit with
+        // cleared buffers and an unguarded `_finished`. A caller that wants a
+        // fresh run waits for the one in flight to finish.
+        if (running) {
+            return;
+        }
         _out = "";
         _err = "";
         _overflowed = false;
