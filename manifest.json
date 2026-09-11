@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "scoop.oxidone",
+  "name": "oxidone",
+  "version": "0.1.0",
+  "author": "scoop",
+  "description": "What is due today in Google Tasks, read through the oxidone CLI. The bar stays empty until something is.",
+  "license": "MIT",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Indicator.qml"
+  },
+  "barWidget": {
+    "displayName": "oxidone",
+    "description": "Tasks due today, via the oxidone CLI",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "binaryPath": "",
+      "pollIntervalSec": 300
+    },
+    "schema": [
+      {
+        "key": "binaryPath",
+        "type": "path",
+        "label": "oxidone binary",
+        "defaultValue": "",
+        "description": "Absolute path to the oxidone binary. Leave empty for ~/.local/bin/oxidone."
+      },
+      {
+        "key": "pollIntervalSec",
+        "type": "integer",
+        "label": "Poll interval (seconds)",
+        "min": 60,
+        "max": 3600,
+        "step": 60,
+        "defaultValue": 300
+      }
+    ]
+  }
+}
