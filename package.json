@@ -7,6 +7,7 @@
     "test": "bun test",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "validate": "rm -rf .validate && mkdir -p .validate && tar -cf - --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=docs --exclude=test --exclude=.husky --exclude=.validate . | tar -xf - -C .validate && /usr/share/omarchy/bin/omarchy-plugin-validate .validate && rm -rf .validate",
     "prepare": "husky"
   },
   "devDependencies": {
