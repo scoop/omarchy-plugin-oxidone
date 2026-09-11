@@ -27,7 +27,8 @@
 
 **Files:**
 
-- Create: `manifest.json`, `package.json`, `eslint.config.js`, `.prettierrc`, `.gitignore`, `LICENSE`, `.husky/pre-commit`
+- Create: `manifest.json`, `package.json`, `eslint.config.js`, `.prettierrc`, `.prettierignore`, `.gitignore`, `LICENSE`, `.husky/pre-commit`
+- Modify (one-time, on adopting prettier): `CONTEXT.md`, `docs/superpowers/specs/2026-09-11-omarchy-plugin-oxidone.md` — emphasis markers only, no prose changes
 
 **Interfaces:**
 
