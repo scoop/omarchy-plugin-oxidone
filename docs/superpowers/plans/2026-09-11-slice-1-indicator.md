@@ -1100,6 +1100,14 @@ git commit -m "feat(service): poll oxidone json today, with a version gate and b
 
 ### Task 7: `Indicator.qml` — the bar presence
 
+> **Amended during execution.** Review found three Criticals here. The Nerd Font
+> glyphs were lost in transcription (they are private-use code points and render
+> as blank in a terminal, so only a hexdump catches it); a stale widget with a
+> zero count was invisible, indistinguishable from a clear day; and the count
+> kept rendering during the attention states. `showing` is now `state !== OK ||
+outstanding > 0`, so silence has exactly one meaning, and a single `tone`
+> property drives both Text elements so the glyph and count cannot disagree.
+
 **Files:**
 
 - Modify: `Indicator.qml` (replacing the Task 1 placeholder)
@@ -1137,7 +1145,16 @@ BarWidget {
     // there is indistinguishable from a clear day, which is the one thing the
     // bar must never get wrong.
     readonly property bool needsAttention: state === State.AUTH_NEEDED || state === State.UNUSABLE
-    readonly property bool showing: needsAttention || outstanding > 0
+
+    // Visible whenever there is something to say: work outstanding, or a state
+    // that is not a clean answer. Silence has exactly one meaning — we asked,
+    // and there is nothing due. A degraded widget that hides is indistinguishable
+    // from a clear day, which is the one mistake this widget must not make.
+    readonly property bool showing: state !== State.OK || outstanding > 0
+
+    // One tone for the whole widget: the glyph and the count must never disagree
+    // about what they are reporting.
+    readonly property color tone: needsAttention || state === State.STALE ? Color.muted : (overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
 
     implicitWidth: showing ? row.implicitWidth : 0
     implicitHeight: showing ? barSize : 0
@@ -1168,20 +1185,20 @@ BarWidget {
             text: root.needsAttention ? "" : ""
             font.family: bar ? bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
-            color: root.needsAttention ? Color.muted : (root.overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
+            color: root.tone
             textFormat: Text.PlainText
         }
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            visible: root.outstanding > 0
+            visible: root.outstanding > 0 && !root.needsAttention
             text: String(root.outstanding)
             font.family: bar ? bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
             // While the answer is Stale this count is the last thing we were
             // told, not what is true now. It should not look as certain as a
             // fresh one, and the glyph beside it already admits we cannot ask.
-            color: root.state === State.STALE || root.needsAttention ? Color.muted : (root.overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
+            color: root.tone
             textFormat: Text.PlainText
         }
     }
