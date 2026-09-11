@@ -173,6 +173,7 @@ instead: a clean export, which is the same tree Task 8 installs.
 Add to `package.json`'s `scripts`:
 
 ```json
+"install-dev": "tar -cf - --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=docs --exclude=test --exclude=.husky --exclude=.validate . | (rm -rf ~/.config/omarchy/plugins/scoop.oxidone && mkdir -p ~/.config/omarchy/plugins/scoop.oxidone && tar -xf - -C ~/.config/omarchy/plugins/scoop.oxidone) && omarchy-shell shell rescanPlugins",
 "validate": "rm -rf .validate && mkdir -p .validate && tar -cf - --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=docs --exclude=test --exclude=.husky --exclude=.validate . | tar -xf - -C .validate && /usr/share/omarchy/bin/omarchy-plugin-validate .validate && rm -rf .validate"
 ```
 
@@ -769,7 +770,15 @@ Process {
 
 - [ ] **Step 2: Verify it loads**
 
-Run: `omarchy-shell shell rescanPlugins && journalctl --user -u omarchy-shell -n 30 --no-pager | grep -i 'oxidone\|error' || true`
+`omarchy-shell` is not a systemd unit — it runs as `quickshell -n -p /usr/share/omarchy/shell`, started by the compositor — so `journalctl --user -u omarchy-shell` shows nothing. Read its log through Quickshell itself. And the shell only loads files it has been given, so the working tree must be installed into `~/.config/omarchy/plugins/scoop.oxidone` before any QML in it can load at all.
+
+Run:
+
+```bash
+bun run install-dev
+quickshell -p /usr/share/omarchy/shell log -t 60 | grep -iE 'oxidone|error|warn' || true
+```
+
 Expected: no QML syntax or type errors mentioning `BoundedProcess.qml`. A warning about the placeholder `Service.qml` is fine at this point.
 
 - [ ] **Step 3: Commit**
@@ -949,8 +958,14 @@ Item {
 
 - [ ] **Step 2: Verify it loads and polls**
 
-Run: `omarchy-shell shell rescanPlugins` then `journalctl --user -u omarchy-shell -n 40 --no-pager | grep -i oxidone || true`
-Expected: no QML errors. With oxidone installed and authorized, nothing is logged (a successful poll is quiet). With the binary path pointing nowhere, `oxidone: no usable binary at …` appears once.
+Run:
+
+```bash
+bun run install-dev
+quickshell -p /usr/share/omarchy/shell log -t 60 | grep -iE 'oxidone|error|warn' || true
+```
+
+Expected: no QML errors naming `Service.qml`. This machine's oxidone grant is currently expired, so a poll exits 3 and the Service logs `oxidone: poll failed, exit 3 (auth_expired)` — that is correct behaviour and is positive evidence the poll ran and the error path works, not a defect. With the binary path pointing nowhere you would instead see `oxidone: no usable binary at …` once.
 
 - [ ] **Step 3: Commit**
 
