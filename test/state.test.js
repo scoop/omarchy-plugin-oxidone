@@ -52,3 +52,22 @@ test("an envelope that is not one yields no kind rather than throwing", () => {
   expect(errorKindOf("")).toBe("");
   expect(errorKindOf("{}")).toBe("");
 });
+
+test("a zero, negative or non-numeric interval is clamped to the floor, not a spawn loop", () => {
+  [0, -1, "abc"].forEach((interval) => {
+    var delay = nextDelaySeconds(0, interval, 0);
+    expect(delay).toBeGreaterThanOrEqual(60);
+    expect(delay).toBeLessThanOrEqual(3600);
+  });
+});
+
+test("an interval below the manifest floor or above its ceiling is clamped", () => {
+  expect(nextDelaySeconds(0, 10, 0)).toBe(60);
+  expect(nextDelaySeconds(0, 99999, 0)).toBe(3600);
+});
+
+test("negative failures never back off below the interval itself", () => {
+  var delay = nextDelaySeconds(4, 300, -5);
+  expect(delay).toBeGreaterThanOrEqual(300);
+  expect(delay).toBeLessThanOrEqual(3600);
+});

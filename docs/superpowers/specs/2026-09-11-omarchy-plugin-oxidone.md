@@ -93,5 +93,5 @@ and shows a non-modal inline error that clears on the next good poll.
 - `textFormat: Text.PlainText` on every `Text` rendering a Google-sourced string
 - absolute-path argv arrays, `clearEnvironment: true`, explicit minimal environment
 - producer-side output caps; never `StdioCollector`
-- an absolute deadline, own process group, TERM→KILL teardown on every child
+- an absolute deadline, TERM→KILL teardown on every child
 - no `CLAUDE.md` / `AGENTS.md` / `.claude/` in the installable tree

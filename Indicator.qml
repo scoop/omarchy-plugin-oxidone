@@ -15,7 +15,13 @@ BarWidget {
 
     readonly property int outstanding: service ? service.outstanding : 0
     readonly property bool overdue: service ? service.overdue : false
-    readonly property string state: service ? service.state : State.UNUSABLE
+    // The host injects bar/service via Qt.callLater, so service is null for at
+    // least one event-loop turn on every shell start, theme change, monitor
+    // hotplug and settings edit. That is "not wired yet", not "binary missing" —
+    // defaulting to UNUSABLE would flash the attention glyph on every one of
+    // those, which is the same cry-wolf mistake Service.qml's own OK-by-default
+    // start exists to avoid.
+    readonly property string state: service ? service.state : State.OK
 
     // Auth-needed and an unusable binary both need saying out loud: silence
     // there is indistinguishable from a clear day, which is the one thing the

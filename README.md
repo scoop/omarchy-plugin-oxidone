@@ -41,7 +41,13 @@ running oxidone yourself, outside the plugin.
 | Unusable       | The same unlink glyph, no count — no working oxidone binary was found at the configured path, or it's older than 1.1.0.                                 |
 | Nothing due    | Nothing. The widget is entirely absent from the bar.                                                                                                    |
 
-Clicking the widget opens or focuses a terminal running oxidone.
+Clicking the widget opens or focuses a terminal running oxidone. It does this
+by running `omarchy-launch-or-focus-tui oxidone`, which resolves `oxidone`
+from your `PATH` — it does not use the `binaryPath` setting below. If
+`binaryPath` points somewhere outside your `PATH`, the click opens whichever
+`oxidone` your shell finds there, or none. This is deliberate: the host's only
+launch API takes a shell string, and interpolating a user-supplied path into
+one is exactly what the plugin security rules forbid.
 
 ## Settings
 
@@ -50,11 +56,8 @@ Clicking the widget opens or focuses a terminal running oxidone.
 | `binaryPath`      | `~/.local/bin/oxidone` | Absolute path to the oxidone binary. Leave empty to use the default. |
 | `pollIntervalSec` | `300`                  | How often to poll, in seconds. Range 60–3600.                        |
 
-## Keybinding
+## No keybinding yet
 
-A plugin cannot register a global Hyprland keybinding for itself. If you
-want one, bind a key to it yourself in your Hyprland config:
-
-```
-bind = SUPER, T, exec, omarchy-shell shell toggle scoop.oxidone '{}'
-```
+There is nothing to toggle in this release: the widget is read-only, with no
+Pane to open, so it exposes no `open()` for `omarchy-shell shell toggle` to
+call. A keybinding arrives together with the Pane in a later release.

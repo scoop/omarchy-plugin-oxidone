@@ -33,8 +33,15 @@ function stateForExit(code) {
 }
 
 function nextDelaySeconds(code, intervalSeconds, failures) {
+  // The manifest's min/max are a settings-UI hint; the shell validates nothing,
+  // so whatever sits in shell.json arrives here raw. An interval of 0 would make
+  // this a process-spawn loop inside the user's desktop shell, so the floor is
+  // enforced where every caller passes rather than at the edges where it can be
+  // forgotten.
+  var interval = Math.min(3600, Math.max(60, Number(intervalSeconds) || 300));
+  var attempts = Math.max(0, Math.floor(Number(failures) || 0));
   if (code === 0) {
-    return intervalSeconds;
+    return interval;
   }
   // An exhausted daily quota cannot change inside a poll interval, and retrying
   // into it just spends the next day's allowance early.
@@ -44,10 +51,10 @@ function nextDelaySeconds(code, intervalSeconds, failures) {
   // Nothing was sent, so there is nothing to be gentle with — and a grant can
   // come back the moment the TUI is run.
   if (code === 3) {
-    return intervalSeconds;
+    return interval;
   }
-  var doublings = Math.min(failures, 3);
-  return Math.min(intervalSeconds * Math.pow(2, doublings), 1800);
+  var doublings = Math.min(attempts, 3);
+  return Math.min(interval * Math.pow(2, doublings), 1800);
 }
 
 // oxidone prints {"error":{"kind","message"}} on stderr. The kind is worth

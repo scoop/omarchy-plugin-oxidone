@@ -31,7 +31,7 @@ user installed deliberately.
   `token.json` are oxidone's, which is also why **Auth-needed** hands off to the TUI
   instead of opening a browser from the shell process.
 - Bridges are one-shot, so every child process is trivially bounded — an absolute deadline,
-  its own process group, TERM→KILL teardown — which is what the marketplace review asks for
-  and what a supervised daemon would have made harder.
+  TERM→KILL teardown — which is what the marketplace review asks for and what a supervised
+  daemon would have made harder.
 - The plugin renders a **Snapshot** rather than reading `oxidone.db`. The cache schema stays
   private to oxidone, and its single-writer design stays true.
