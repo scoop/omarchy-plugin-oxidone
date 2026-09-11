@@ -636,6 +636,16 @@ git commit -m "feat(state): map oxidone's exit codes onto the bar's states"
 
 ### Task 5: `BoundedProcess.qml` — a child that cannot outgrow its budget
 
+> **Amended during execution.** This file's final shape came out of four fix
+> rounds against defects in the original plan code. Three facts were established
+> empirically against the live Quickshell runtime, none of them documented:
+> a failed exec (missing _or_ non-executable binary) emits neither `started` nor
+> `exited`, so `running` never becomes true and a caller waiting on a callback
+> waits forever; `keepLoaded: true` means `rescanPlugins` never reloads a live
+> service; and `Quickshell.env()` returns `null` for an unset variable, which
+> under `clearEnvironment: true` passes the system value through. The `start()`
+> / `_finish()` / `_wanted` design below follows directly from the first of those.
+
 **Files:**
 
 - Create: `BoundedProcess.qml`
@@ -687,6 +697,44 @@ Process {
     property string _out: ""
     property string _err: ""
     property bool _overflowed: false
+    property bool _started: false
+    property bool _finished: false
+    property bool _wanted: false
+
+    // Every termination path funnels through here, so `finishedWith` is emitted
+    // exactly once per run however the run ended.
+    function _finish(code) {
+        if (_finished) {
+            return;
+        }
+        _finished = true;
+        _wanted = false;
+        deadlineTimer.stop();
+        killTimer.stop();
+        root.finishedWith(_out, _err, code, _overflowed);
+        _out = "";
+        _err = "";
+        _overflowed = false;
+        _started = false;
+    }
+
+    function start() {
+        // Restarting a live process would blank the bookkeeping out from under
+        // the child that is still running: its eventual exit would then emit with
+        // cleared buffers and an unguarded `_finished`. A caller that wants a
+        // fresh run waits for the one in flight to finish.
+        if (running) {
+            return;
+        }
+        _out = "";
+        _err = "";
+        _overflowed = false;
+        _started = false;
+        _finished = false;
+        _wanted = true;
+        deadlineTimer.restart();
+        running = true;
+    }
 
     clearEnvironment: true
     environment: ({
@@ -701,10 +749,20 @@ Process {
         })
 
     onStarted: {
+        _started = true;
         _out = "";
         _err = "";
         _overflowed = false;
-        deadlineTimer.restart();
+    }
+
+    // Quickshell reports a failed exec by returning to not-running without ever
+    // emitting `started` — verified empirically: a missing or non-executable
+    // binary produces no `started` and no `exited` at all, so a caller waiting on
+    // `finishedWith` would wait forever. Treat that transition as the failure it is.
+    onRunningChanged: {
+        if (!running && _wanted && !_started) {
+            _finish(-1);
+        }
     }
 
     stdout: SplitParser {
@@ -738,12 +796,7 @@ Process {
     }
 
     onExited: function (code) {
-        deadlineTimer.stop();
-        killTimer.stop();
-        root.finishedWith(root._out, root._err, code, root._overflowed);
-        root._out = "";
-        root._err = "";
-        root._overflowed = false;
+        _finish(code);
     }
 
     // Declared as properties rather than children: Process has no default
@@ -754,6 +807,11 @@ Process {
         interval: root.deadlineMs
         repeat: false
         onTriggered: {
+            if (!root._started) {
+                root.running = false;
+                root._finish(-1);
+                return;
+            }
             root.signal(15);
             killTimer.restart();
         }
@@ -874,22 +932,39 @@ Item {
     property bool versionChecked: false
     property bool versionOk: false
 
+    // Bumped whenever the binary we talk to changes. A callback carrying a stale
+    // epoch belongs to a process started against a different binary, and its
+    // answer must not be written into the state we hold now.
+    property int epoch: 0
+    property int versionEpoch: 0
+    property int todayEpoch: 0
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
             console.warn("oxidone: configured path is not absolute:", resolvedBinary);
+            root.consecutiveFailures += 1;
+            root.scheduleNext(1);
             return;
         }
         if (!versionChecked) {
-            versionProc.running = true;
+            if (!versionProc.running) {
+                root.versionEpoch = root.epoch;
+                versionProc.start();
+            }
             return;
         }
         if (!versionOk) {
+            // Defensive: the version handler clears versionChecked so a retry
+            // re-runs the check. Reaching here still must not stop the clock.
             root.state = State.UNUSABLE;
+            root.consecutiveFailures += 1;
+            root.scheduleNext(1);
             return;
         }
         if (!todayProc.running) {
-            todayProc.running = true;
+            root.todayEpoch = root.epoch;
+            todayProc.start();
         }
     }
 
@@ -900,8 +975,10 @@ Item {
 
     // Re-check the binary whenever the person points us somewhere else.
     onResolvedBinaryChanged: {
+        epoch += 1;
         versionChecked = false;
         versionOk = false;
+        consecutiveFailures = 0;
         refresh();
     }
 
@@ -911,14 +988,26 @@ Item {
         maxBytes: 256
         deadlineMs: 5000
         onFinishedWith: function (out, err, code, tooLarge) {
+            if (root.versionEpoch !== root.epoch) {
+                // Stale: started against a different binary. Its answer must not
+                // be written, but dropping it silently would leave nothing running
+                // and nothing scheduled.
+                root.refresh();
+                return;
+            }
             root.versionChecked = true;
             root.versionOk = code === 0 && !tooLarge && Version.satisfies(Version.parseVersion(out), Version.MINIMUM);
             if (!root.versionOk) {
                 root.state = State.UNUSABLE;
                 console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.1.0");
+                // Do not latch: the next retry re-runs the check, so replacing the
+                // binary in place at the same path is eventually picked up.
+                root.versionChecked = false;
+                root.consecutiveFailures += 1;
                 root.scheduleNext(1);
                 return;
             }
+            root.consecutiveFailures = 0;
             root.refresh();
         }
     }
@@ -931,6 +1020,13 @@ Item {
         maxBytes: 262144
         deadlineMs: 30000
         onFinishedWith: function (out, err, code, tooLarge) {
+            if (root.todayEpoch !== root.epoch) {
+                // Stale: started against a different binary. Its answer must not
+                // be written, but dropping it silently would leave nothing running
+                // and nothing scheduled.
+                root.refresh();
+                return;
+            }
             if (code !== 0 || tooLarge) {
                 root.consecutiveFailures += 1;
                 root.state = tooLarge ? State.STALE : State.stateForExit(code);
