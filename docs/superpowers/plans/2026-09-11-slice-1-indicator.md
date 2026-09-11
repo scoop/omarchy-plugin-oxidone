@@ -779,6 +779,19 @@ bun run install-dev
 quickshell -p /usr/share/omarchy/shell log -t 60 | grep -iE 'oxidone|error|warn' || true
 ```
 
+Also run the static QML check, which catches parse and type errors without needing
+the shell to have loaded the file at all:
+
+```bash
+qmllint *.qml
+echo $?
+```
+
+Expected: exit 0, no output. (Verified as a real gate: it exits 255 on a file with
+a syntax error. It cannot resolve the `Quickshell`/`qs.*` imports, so it will not
+catch a wrong property name on a shell type — it catches the parse-level defects,
+which is the class the live shell is worst at reporting.)
+
 Expected: no QML syntax or type errors mentioning `BoundedProcess.qml`. A warning about the placeholder `Service.qml` is fine at this point.
 
 - [ ] **Step 3: Commit**
@@ -965,6 +978,19 @@ bun run install-dev
 quickshell -p /usr/share/omarchy/shell log -t 60 | grep -iE 'oxidone|error|warn' || true
 ```
 
+Also run the static QML check, which catches parse and type errors without needing
+the shell to have loaded the file at all:
+
+```bash
+qmllint *.qml
+echo $?
+```
+
+Expected: exit 0, no output. (Verified as a real gate: it exits 255 on a file with
+a syntax error. It cannot resolve the `Quickshell`/`qs.*` imports, so it will not
+catch a wrong property name on a shell type — it catches the parse-level defects,
+which is the class the live shell is worst at reporting.)
+
 Expected: no QML errors naming `Service.qml`. This machine's oxidone grant is currently expired, so a poll exits 3 and the Service logs `oxidone: poll failed, exit 3 (auth_expired)` — that is correct behaviour and is positive evidence the poll ran and the error path works, not a defect. With the binary path pointing nowhere you would instead see `oxidone: no usable binary at …` once.
 
 - [ ] **Step 3: Commit**
@@ -1093,8 +1119,18 @@ BarWidget {
 
 - [ ] **Step 2: Verify the tokens**
 
-Run: `grep -nE '#[0-9a-fA-F]{3,8}|pixelSize: [0-9]|radius: [0-9]' *.qml`
-Expected: no output. Any hit is a literal colour, size or radius, which this plan forbids — replace it with a `Color.*` or `Style.*` token.
+Run:
+
+```bash
+grep -nE '#[0-9a-fA-F]{3,8}|pixelSize: [0-9]|radius: [0-9]' *.qml
+qmllint *.qml
+echo $?
+bun run install-dev
+quickshell -p /usr/share/omarchy/shell log -t 60 | grep -iE 'oxidone|error|warn' || true
+```
+
+Expected: the grep prints nothing, `qmllint` exits 0, and the shell log shows the
+plugin reloading with no QML error naming `Indicator.qml`. Any hit is a literal colour, size or radius, which this plan forbids — replace it with a `Color.*` or `Style.*` token.
 
 - [ ] **Step 3: Commit**
 
