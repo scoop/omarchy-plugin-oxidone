@@ -108,6 +108,10 @@ Item {
         deadlineMs: 5000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (root.versionEpoch !== root.epoch) {
+                // Stale: started against a different binary. Its answer must not
+                // be written, but dropping it silently would leave nothing running
+                // and nothing scheduled.
+                root.refresh();
                 return;
             }
             root.versionChecked = true;
@@ -136,6 +140,10 @@ Item {
         deadlineMs: 30000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (root.todayEpoch !== root.epoch) {
+                // Stale: started against a different binary. Its answer must not
+                // be written, but dropping it silently would leave nothing running
+                // and nothing scheduled.
+                root.refresh();
                 return;
             }
             if (code !== 0 || tooLarge) {

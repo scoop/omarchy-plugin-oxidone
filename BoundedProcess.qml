@@ -33,6 +33,7 @@ Process {
     property string _out: ""
     property string _err: ""
     property bool _overflowed: false
+    property bool _started: false
 
     clearEnvironment: true
     environment: ({
@@ -47,10 +48,22 @@ Process {
         })
 
     onStarted: {
+        _started = true;
         _out = "";
         _err = "";
         _overflowed = false;
         deadlineTimer.restart();
+    }
+
+    // A failed exec is silent: Quickshell emits neither `started` nor `exited`
+    // when the binary is missing or not executable (verified empirically). Arming
+    // the deadline on `onStarted` alone would therefore leave a caller waiting for
+    // a callback that can never arrive, so arm it here too.
+    onRunningChanged: {
+        if (running) {
+            _started = false;
+            deadlineTimer.restart();
+        }
     }
 
     stdout: SplitParser {
@@ -90,6 +103,7 @@ Process {
         root._out = "";
         root._err = "";
         root._overflowed = false;
+        root._started = false;
     }
 
     // Declared as properties rather than children: Process has no default
@@ -100,6 +114,13 @@ Process {
         interval: root.deadlineMs
         repeat: false
         onTriggered: {
+            if (!root._started) {
+                // Nothing to signal — there is no child. Report the failure
+                // ourselves so the caller is never left waiting forever.
+                root.running = false;
+                root.finishedWith("", "", -1, false);
+                return;
+            }
             root.signal(15);
             killTimer.restart();
         }
