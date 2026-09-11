@@ -70,7 +70,7 @@ Item {
         }
         if (!versionChecked) {
             root.versionEpoch = root.epoch;
-            versionProc.running = true;
+            versionProc.start();
             return;
         }
         if (!versionOk) {
@@ -83,7 +83,7 @@ Item {
         }
         if (!todayProc.running) {
             root.todayEpoch = root.epoch;
-            todayProc.running = true;
+            todayProc.start();
         }
     }
 

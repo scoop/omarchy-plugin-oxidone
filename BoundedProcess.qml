@@ -34,6 +34,36 @@ Process {
     property string _err: ""
     property bool _overflowed: false
     property bool _started: false
+    property bool _finished: false
+    property bool _wanted: false
+
+    // Every termination path funnels through here, so `finishedWith` is emitted
+    // exactly once per run however the run ended.
+    function _finish(code) {
+        if (_finished) {
+            return;
+        }
+        _finished = true;
+        _wanted = false;
+        deadlineTimer.stop();
+        killTimer.stop();
+        root.finishedWith(_out, _err, code, _overflowed);
+        _out = "";
+        _err = "";
+        _overflowed = false;
+        _started = false;
+    }
+
+    function start() {
+        _out = "";
+        _err = "";
+        _overflowed = false;
+        _started = false;
+        _finished = false;
+        _wanted = true;
+        deadlineTimer.restart();
+        running = true;
+    }
 
     clearEnvironment: true
     environment: ({
@@ -52,17 +82,15 @@ Process {
         _out = "";
         _err = "";
         _overflowed = false;
-        deadlineTimer.restart();
     }
 
-    // A failed exec is silent: Quickshell emits neither `started` nor `exited`
-    // when the binary is missing or not executable (verified empirically). Arming
-    // the deadline on `onStarted` alone would therefore leave a caller waiting for
-    // a callback that can never arrive, so arm it here too.
+    // Quickshell reports a failed exec by returning to not-running without ever
+    // emitting `started` — verified empirically: a missing or non-executable
+    // binary produces no `started` and no `exited` at all, so a caller waiting on
+    // `finishedWith` would wait forever. Treat that transition as the failure it is.
     onRunningChanged: {
-        if (running) {
-            _started = false;
-            deadlineTimer.restart();
+        if (!running && _wanted && !_started) {
+            _finish(-1);
         }
     }
 
@@ -97,13 +125,7 @@ Process {
     }
 
     onExited: function (code) {
-        deadlineTimer.stop();
-        killTimer.stop();
-        root.finishedWith(root._out, root._err, code, root._overflowed);
-        root._out = "";
-        root._err = "";
-        root._overflowed = false;
-        root._started = false;
+        _finish(code);
     }
 
     // Declared as properties rather than children: Process has no default
@@ -115,10 +137,8 @@ Process {
         repeat: false
         onTriggered: {
             if (!root._started) {
-                // Nothing to signal — there is no child. Report the failure
-                // ourselves so the caller is never left waiting forever.
                 root.running = false;
-                root.finishedWith("", "", -1, false);
+                root._finish(-1);
                 return;
             }
             root.signal(15);
