@@ -26,9 +26,11 @@
 ### Task 1: Repository scaffolding and manifest
 
 **Files:**
+
 - Create: `manifest.json`, `package.json`, `eslint.config.js`, `.prettierrc`, `.gitignore`, `LICENSE`, `.husky/pre-commit`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: the manifest's `barWidget.defaults` keys `binaryPath` (string, `""`) and `pollIntervalSec` (integer, `300`), read by `Indicator.qml` in Task 7 via `setting(name, fallback)`.
 
@@ -162,8 +164,26 @@ printf '%s\n' 'bunx lint-staged' > .husky/pre-commit
 
 - [ ] **Step 4: Validate the manifest**
 
-Run: `/usr/share/omarchy/bin/omarchy-plugin-validate .`
-Expected: exits 0 with no findings. If it reports a missing entry point, that is correct — `Service.qml` and `Indicator.qml` do not exist yet; create both as one-line placeholders (`import QtQuick` + `Item {}`) so validation passes, and let Tasks 6 and 7 replace them.
+The validator refuses symlinks anywhere in a plugin folder, and `bun install`
+fills `node_modules/.bin/` with them — so the working tree can never be
+validated in place once dev dependencies exist. Validate what actually ships
+instead: a clean export, which is the same tree Task 8 installs.
+
+Add to `package.json`'s `scripts`:
+
+```json
+"validate": "rm -rf .validate && mkdir -p .validate && tar -cf - --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=docs --exclude=test --exclude=.husky --exclude=.validate . | tar -xf - -C .validate && /usr/share/omarchy/bin/omarchy-plugin-validate .validate && rm -rf .validate"
+```
+
+and `.validate/` to `.gitignore`.
+
+Run: `bun run validate`
+Expected: exits 0 with no findings. Check the exit status directly (`echo $?`
+on the validator, not through a pipe — piping to `tail` reports the pager's
+status, not the validator's). If it reports a missing entry point, that is
+correct: `Service.qml` and `Indicator.qml` do not exist yet. Create both as
+one-line placeholders (`import QtQuick` then `Item {}`) so validation passes,
+and let Tasks 6 and 7 replace them.
 
 - [ ] **Step 5: Commit**
 
@@ -177,10 +197,12 @@ git commit -m "chore: scaffold plugin, manifest and tooling"
 ### Task 2: `src/today.js` — read the CLI's answer into what the bar needs
 
 **Files:**
+
 - Create: `src/today.js`
 - Test: `test/today.test.js`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `parseToday(stdout) -> payload`, `outstandingCount(payload) -> number`, `hasOverdue(payload) -> boolean`. `payload` is `{today: string, entries: Entry[]}`. Consumed by `Service.qml` (Task 6).
 
@@ -323,10 +345,12 @@ git commit -m "feat(today): read the CLI's answer into the bar's count"
 ### Task 3: `src/version.js` — the version gate
 
 **Files:**
+
 - Create: `src/version.js`
 - Test: `test/version.test.js`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `parseVersion(stdout) -> [major, minor, patch] | null`, `satisfies(version, floor) -> boolean`, and the constant `MINIMUM = [1, 1, 0]`. Consumed by `Service.qml` (Task 6).
 
@@ -434,10 +458,12 @@ git commit -m "feat(version): gate on oxidone 1.1.0, the release json shipped in
 ### Task 4: `src/state.js` — exit codes into bar states
 
 **Files:**
+
 - Create: `src/state.js`
 - Test: `test/state.test.js`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: constants `OK`, `AUTH_NEEDED`, `STALE`, `UNUSABLE`; `stateForExit(code) -> string`; `nextDelaySeconds(code, intervalSeconds, failures) -> number`; `errorKindOf(stderr) -> string`. Consumed by `Service.qml` (Task 6).
 
@@ -608,9 +634,11 @@ git commit -m "feat(state): map oxidone's exit codes onto the bar's states"
 ### Task 5: `BoundedProcess.qml` — a child that cannot outgrow its budget
 
 **Files:**
+
 - Create: `BoundedProcess.qml`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: a `Process` subclass with `property int maxBytes` (default 65536), `property int deadlineMs` (default 30000), and `signal finishedWith(string stdoutText, string stderrText, int code, bool tooLarge)`. Instantiated by `Service.qml` (Task 6), which sets `command` and calls `running = true`.
 
@@ -754,9 +782,11 @@ git commit -m "feat(process): bounded, deadlined child process with a chosen env
 ### Task 6: `Service.qml` — own the poll
 
 **Files:**
+
 - Modify: `Service.qml` (replacing the Task 1 placeholder)
 
 **Interfaces:**
+
 - Consumes: `src/today.js`, `src/version.js`, `src/state.js` (Tasks 2–4), `BoundedProcess.qml` (Task 5).
 - Produces, for `Indicator.qml` (Task 7): `property string binaryPath`, `property int pollIntervalSec` (both written by the Indicator), and read-only `property int outstanding`, `property bool overdue`, `property string state`, `property double lastSuccess`. `refresh()` is the Service's own entry point, driven by its timer and its settings changing; no other component calls it.
 
@@ -932,9 +962,11 @@ git commit -m "feat(service): poll oxidone json today, with a version gate and b
 ### Task 7: `Indicator.qml` — the bar presence
 
 **Files:**
+
 - Modify: `Indicator.qml` (replacing the Task 1 placeholder)
 
 **Interfaces:**
+
 - Consumes: the Service's `outstanding`, `overdue`, `state`, `lastSuccess`, and writes its `binaryPath` and `pollIntervalSec` (Task 6).
 - Produces: nothing consumed by later tasks in this slice.
 
@@ -1059,17 +1091,19 @@ git commit -m "feat(indicator): show outstanding work, absent when the day is cl
 ### Task 8: Install, verify live, and document
 
 **Files:**
+
 - Create: `README.md`
 - Modify: `manifest.json` only if validation asks for it
 
 **Interfaces:**
+
 - Consumes: everything above.
 - Produces: an installed, enabled plugin.
 
 - [ ] **Step 1: Validate and install**
 
 ```bash
-/usr/share/omarchy/bin/omarchy-plugin-validate .
+bun run validate
 ```
 
 Then install by copying the tree — validation refuses symlinks anywhere in a
