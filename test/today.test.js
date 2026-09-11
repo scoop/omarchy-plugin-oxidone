@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseToday, outstandingCount, hasOverdue } from "../src/today.js";
+import { parseToday, outstandingCount, hasOverdue, MAX_ENTRIES } from "../src/today.js";
 
 const entry = (over) =>
   Object.assign(
@@ -31,6 +31,19 @@ test("an answer that is not an object is refused rather than guessed at", () => 
   expect(() => parseToday("[]")).toThrow();
   expect(() => parseToday('{"entries": []}')).toThrow();
   expect(() => parseToday('{"today": "2026-07-20"}')).toThrow();
+});
+
+test("an answer with more entries than the cap is refused whole, not truncated", () => {
+  const many = { today: "2026-07-20", entries: new Array(MAX_ENTRIES + 1).fill(entry({})) };
+  expect(() => parseToday(JSON.stringify(many))).toThrow();
+  const atCap = { today: "2026-07-20", entries: new Array(MAX_ENTRIES).fill(entry({})) };
+  expect(parseToday(JSON.stringify(atCap)).entries.length).toBe(MAX_ENTRIES);
+});
+
+test("an entry that is not an object is refused rather than counted", () => {
+  for (const bad of [null, 42, "x", []]) {
+    expect(() => parseToday(JSON.stringify({ today: "2026-07-20", entries: [bad] }))).toThrow();
+  }
 });
 
 test("the count is outstanding work, so a completed entry is not in it", () => {

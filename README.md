@@ -4,6 +4,16 @@ An [Omarchy](https://omarchy.org) bar plugin that shows what's due today in
 Google Tasks, read through the [oxidone](https://github.com/erwins-enkel/oxidone)
 CLI.
 
+## Installing
+
+```bash
+omarchy plugin add https://github.com/scoop/omarchy-plugin-oxidone --enable
+```
+
+This plugin needs manual setup beyond that: oxidone must be installed and
+authorized separately (see Requirements below). Until it is, the widget shows
+its auth-needed or unusable state rather than a count.
+
 ## Requirements
 
 - **oxidone >= 1.1.0**, installed separately. Get it from
@@ -61,3 +71,30 @@ one is exactly what the plugin security rules forbid.
 There is nothing to toggle in this release: the widget is read-only, with no
 Pane to open, so it exposes no `open()` for `omarchy-shell shell toggle` to
 call. A keybinding arrives together with the Pane in a later release.
+
+## What it touches
+
+The plugin writes no files. There is no state file, no cache on disk, no
+keyring entry, no systemd unit, no hook, and no edit to any shared
+configuration. The last known count is held in memory for as long as the
+shell runs and is gone when it stops.
+
+It makes no network connections of its own. The only thing it runs is the
+configured `oxidone` binary, as `oxidone json today`, with a fixed minimal
+environment; oxidone is what talks to Google, using its own credentials.
+
+## Removing
+
+```bash
+omarchy plugin remove scoop.oxidone
+```
+
+That removes the plugin and its entry from your bar. Nothing of this
+plugin's survives removal, because it stores nothing.
+
+Two things it never touched are also left alone, and are yours to remove if
+you want them gone:
+
+- **oxidone itself**, including its config and Google token in
+  `~/.config/oxidone/` — installed separately, removed separately.
+- **A keybinding**, if you added one yourself. This release ships none.

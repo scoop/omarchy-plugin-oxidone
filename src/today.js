@@ -6,6 +6,12 @@
 // The completed-today filter oxidone#135 calls for arrives with the Pane, which
 // is the first surface that renders a Completed row at all.
 
+// A byte ceiling bounds how big the answer is, not what shape it has: a quarter
+// of a megabyte of JSON is still tens of thousands of objects. Cardinality and
+// per-entry type are checked here so a malformed answer is refused whole rather
+// than counted into a number the bar then displays as fact.
+var MAX_ENTRIES = 5000;
+
 function parseToday(stdout) {
   var payload = JSON.parse(stdout);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -16,6 +22,15 @@ function parseToday(stdout) {
   }
   if (!Array.isArray(payload.entries)) {
     throw new Error("today: no `entries` array");
+  }
+  if (payload.entries.length > MAX_ENTRIES) {
+    throw new Error("today: more than " + MAX_ENTRIES + " entries");
+  }
+  for (var i = 0; i < payload.entries.length; i++) {
+    var entry = payload.entries[i];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("today: entry " + i + " is not an object");
+    }
   }
   return payload;
 }
@@ -44,6 +59,7 @@ function hasOverdue(payload) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    MAX_ENTRIES: MAX_ENTRIES,
     parseToday: parseToday,
     outstandingCount: outstandingCount,
     hasOverdue: hasOverdue,
