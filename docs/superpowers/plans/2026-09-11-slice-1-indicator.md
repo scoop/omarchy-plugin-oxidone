@@ -182,7 +182,9 @@ git commit -m "chore: scaffold plugin, manifest and tooling"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `parseToday(stdout) -> payload`, `visibleEntries(payload) -> Entry[]`, `outstandingCount(payload) -> number`, `hasOverdue(payload) -> boolean`, `localDateOf(iso) -> "YYYY-MM-DD"`. `payload` is `{today: string, entries: Entry[]}`. Consumed by `Service.qml` (Task 6).
+- Produces: `parseToday(stdout) -> payload`, `outstandingCount(payload) -> number`, `hasOverdue(payload) -> boolean`. `payload` is `{today: string, entries: Entry[]}`. Consumed by `Service.qml` (Task 6).
+
+**Ruling (pre-flight):** the completed-today filter the spec calls for — `visibleEntries`, `isCompletedToday`, `localDateOf` — is deferred to slice 2. Slice 1's count is `needsAction`-only, so nothing here would use it, and an untested-in-anger filter sitting unused is exactly what YAGNI forbids. The oxidone#135 rationale moves with it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -190,13 +192,7 @@ git commit -m "chore: scaffold plugin, manifest and tooling"
 
 ```js
 import { test, expect } from "bun:test";
-import {
-  parseToday,
-  visibleEntries,
-  outstandingCount,
-  hasOverdue,
-  localDateOf,
-} from "../src/today.js";
+import { parseToday, outstandingCount, hasOverdue } from "../src/today.js";
 
 const entry = (over) =>
   Object.assign(
@@ -239,36 +235,6 @@ test("an Event counts as work to come, a Note does not", () => {
   expect(outstandingCount(payload(entries))).toBe(1);
 });
 
-test("a completed entry is visible only if it was completed today", () => {
-  const todays = entry({
-    id: "t2",
-    status: "completed",
-    completed_at: "2026-07-20T09:00:00Z",
-  });
-  const older = entry({
-    id: "t3",
-    status: "completed",
-    completed_at: "2026-07-02T09:00:00Z",
-  });
-  const ids = visibleEntries(payload([entry({}), todays, older])).map((e) => e.id);
-  expect(ids).toEqual(["t1", "t2"]);
-});
-
-test("completion is judged in local time, not UTC", () => {
-  // 00:30 on the 20th in CEST is 22:30 on the 19th in UTC. The entry was
-  // completed today; slicing the ISO string would say yesterday.
-  const local = localDateOf("2026-07-19T22:30:00Z");
-  const expected = new Date("2026-07-19T22:30:00Z");
-  const pad = (n) => String(n).padStart(2, "0");
-  expect(local).toBe(
-    `${expected.getFullYear()}-${pad(expected.getMonth() + 1)}-${pad(expected.getDate())}`,
-  );
-});
-
-test("an unparseable completion date is not today", () => {
-  expect(localDateOf("not a date")).toBe("");
-});
-
 test("overdue is outstanding and dated strictly before today", () => {
   expect(hasOverdue(payload([entry({})]))).toBe(false);
   expect(hasOverdue(payload([entry({ due: "2026-07-19" })]))).toBe(true);
@@ -290,11 +256,10 @@ Expected: FAIL — cannot resolve `../src/today.js`.
 // `oxidone json today` read into what the bar needs. Pure functions only — no
 // QML, no I/O — so the test runner and the shell load the same file.
 //
-// The CLI's `today` is status-blind: membership is `due <= today` whatever the
-// status, so an entry completed weeks ago is still in it. oxidone's glossary
-// admits a Completed row only if it was completed today. The glossary is the
-// older and more considered rule, and it is what the TUI shows, so it is what
-// holds here — see erwins-enkel/oxidone#135.
+// Slice 1 counts only what is outstanding, so the CLI's status-blindness does
+// not reach the bar: a completed entry is excluded by status whatever its date.
+// The completed-today filter oxidone#135 calls for arrives with the Pane, which
+// is the first surface that renders a Completed row at all.
 
 function parseToday(stdout) {
   var payload = JSON.parse(stdout);
@@ -308,31 +273,6 @@ function parseToday(stdout) {
     throw new Error("today: no `entries` array");
   }
   return payload;
-}
-
-// `completed_at` is RFC 3339 UTC; "today" is the user's local day. Slicing the
-// first ten characters would put anything completed after local midnight but
-// before UTC midnight on the wrong day — an entry ticked off at 00:30 local in
-// CEST reads as yesterday. Convert, then compare.
-function localDateOf(iso) {
-  var when = new Date(iso);
-  if (isNaN(when.getTime())) {
-    return "";
-  }
-  var month = String(when.getMonth() + 1).padStart(2, "0");
-  var day = String(when.getDate()).padStart(2, "0");
-  return when.getFullYear() + "-" + month + "-" + day;
-}
-
-function isCompletedToday(entry, today) {
-  return typeof entry.completed_at === "string" && localDateOf(entry.completed_at) === today;
-}
-
-// What the Pane will show in slice 2, and the honest reading of Today.
-function visibleEntries(payload) {
-  return payload.entries.filter(function (entry) {
-    return entry.status === "needsAction" || isCompletedToday(entry, payload.today);
-  });
 }
 
 // The bar's number: outstanding work. An Event occupies the day as a Task does,
@@ -360,9 +300,6 @@ function hasOverdue(payload) {
 if (typeof module !== "undefined") {
   module.exports = {
     parseToday: parseToday,
-    localDateOf: localDateOf,
-    isCompletedToday: isCompletedToday,
-    visibleEntries: visibleEntries,
     outstandingCount: outstandingCount,
     hasOverdue: hasOverdue,
   };
@@ -372,7 +309,7 @@ if (typeof module !== "undefined") {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test test/today.test.js`
-Expected: PASS, 8 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -657,7 +594,7 @@ if (typeof module !== "undefined") {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test`
-Expected: PASS, all three files, 24 tests.
+Expected: PASS, all three files, 21 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -821,7 +758,7 @@ git commit -m "feat(process): bounded, deadlined child process with a chosen env
 
 **Interfaces:**
 - Consumes: `src/today.js`, `src/version.js`, `src/state.js` (Tasks 2–4), `BoundedProcess.qml` (Task 5).
-- Produces, for `Indicator.qml` (Task 7): `property string binaryPath`, `property int pollIntervalSec` (both written by the Indicator), and read-only `property int outstanding`, `property bool overdue`, `property string state`, `property double lastSuccess`, `function refresh()`.
+- Produces, for `Indicator.qml` (Task 7): `property string binaryPath`, `property int pollIntervalSec` (both written by the Indicator), and read-only `property int outstanding`, `property bool overdue`, `property string state`, `property double lastSuccess`. `refresh()` is the Service's own entry point, driven by its timer and its settings changing; no other component calls it.
 
 - [ ] **Step 1: Write the service**
 
@@ -863,7 +800,11 @@ Item {
     property int outstanding: 0
     property bool overdue: false
 
-    property string state: State.UNUSABLE
+    // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
+    // the few hundred milliseconds before the first version check answers, and
+    // a widget that cries wolf on every shell start is one you learn to ignore.
+    // With no entries yet the Indicator is hidden either way.
+    property string state: State.OK
     property double lastSuccess: 0
     property int consecutiveFailures: 0
 
@@ -1129,19 +1070,23 @@ git commit -m "feat(indicator): show outstanding work, absent when the day is cl
 
 ```bash
 /usr/share/omarchy/bin/omarchy-plugin-validate .
-ln -sfn "$PWD" /tmp/oxidone-plugin-check   # sanity only; do not ship symlinks
 ```
 
-Then install properly from the git remote once pushed, or copy the tree:
+Then install by copying the tree — validation refuses symlinks anywhere in a
+plugin folder, so it cannot be linked into place:
 
 ```bash
 rm -rf ~/.config/omarchy/plugins/scoop.oxidone
-cp -r "$PWD" ~/.config/omarchy/plugins/scoop.oxidone
-rm -rf ~/.config/omarchy/plugins/scoop.oxidone/{.git,node_modules,docs}
+mkdir -p ~/.config/omarchy/plugins/scoop.oxidone
+tar -cf - --exclude=.git --exclude=node_modules --exclude=.superpowers \
+    --exclude=docs --exclude=test --exclude=.husky . \
+  | tar -xf - -C ~/.config/omarchy/plugins/scoop.oxidone
 omarchy-shell shell rescanPlugins
 ```
 
-Validation refuses symlinks anywhere in a plugin folder, which is why the tree is copied rather than linked.
+`node_modules` is excluded because bun populates it with symlinks; `.superpowers`
+because it is this plan's git-ignored scratch; `docs` and `test` because neither
+is loaded at runtime and `omarchy plugin add` copies a repo verbatim.
 
 - [ ] **Step 2: Enable it in the bar**
 
