@@ -1,0 +1,41 @@
+# omarchy-plugin-oxidone
+
+An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://github.com/erwins-enkel/oxidone). It is a *thin client over the oxidone binary*, never a second Google Tasks client: oxidone owns Google, the credentials, and the domain.
+
+## Imported language
+
+The task domain is oxidone's and is not restated here. **List**, **Task**, **Subtask**, **Entry type**, **Signifier**, **Notes**, **Display title**, **Due date**, **Today**, **Migrate**, **Status**, and the four exits are defined in [oxidone's CONTEXT.md](https://github.com/erwins-enkel/oxidone/blob/main/CONTEXT.md) and mean exactly what they mean there. A definition restated in two glossaries is a definition free to drift — in particular **Today**, whose membership the Indicator's count must equal.
+
+One divergence is live: `oxidone json today` is status-blind, so it returns Completed entries whenever they were completed, while the glossary's **Today** admits a Completed row only if it was completed today. The glossary's rule is the one that holds here — the plugin filters locally until [erwins-enkel/oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135) settles it.
+
+The terms below are the ones this context adds.
+
+## Language
+
+**Indicator**:
+The plugin's element in the Omarchy bar: a glyph and the **Today** count. Absent from the bar entirely when that count is zero.
+_Avoid_: badge, widget, applet, tray icon, status item.
+
+**Pane**:
+The surface the Indicator opens, where entries are read and changed. Shows **Today** or one **List**, never both.
+_Avoid_: popup, panel, dropdown, overlay, window.
+
+**Scope**:
+What the Pane is currently showing — **Today**, or a single **List**. The Pane opens on Today; scope is what a capture lands in and what the entry rows belong to.
+_Avoid_: view, filter, tab, context.
+
+**Bridge**:
+One invocation of oxidone's machine-readable mode — the plugin's only route to Google Tasks. Each Bridge is a fresh short-lived process that reads or writes once and exits; the plugin holds no connection, no credentials, and no Google client of its own.
+_Avoid_: backend, API client, daemon, service, RPC.
+
+**Snapshot**:
+The last set of entries a Bridge returned successfully, kept by the plugin and rendered whenever a newer one cannot be had. It is *per-machine and non-authoritative* — never Google's truth, and never oxidone's cache, which the plugin does not read.
+_Avoid_: cache, mirror (that is oxidone's live-task store), store, state.
+
+**Stale**:
+The state in which the Snapshot is being shown because the last poll failed. Distinct from a count of zero, which is an answer; Stale is the absence of one.
+_Avoid_: offline, disconnected, error, unavailable.
+
+**Auth-needed**:
+The state in which oxidone reports no usable grant. The plugin never asks for consent itself — it says so and hands off to the TUI, where consent belongs.
+_Avoid_: logged out, unauthenticated, expired.
