@@ -21,7 +21,16 @@ BarWidget {
     // there is indistinguishable from a clear day, which is the one thing the
     // bar must never get wrong.
     readonly property bool needsAttention: state === State.AUTH_NEEDED || state === State.UNUSABLE
-    readonly property bool showing: needsAttention || outstanding > 0
+
+    // Visible whenever there is something to say: work outstanding, or a state
+    // that is not a clean answer. Silence has exactly one meaning — we asked,
+    // and there is nothing due. A degraded widget that hides is indistinguishable
+    // from a clear day, which is the one mistake this widget must not make.
+    readonly property bool showing: state !== State.OK || outstanding > 0
+
+    // One tone for the whole widget: the glyph and the count must never disagree
+    // about what they are reporting.
+    readonly property color tone: needsAttention || state === State.STALE ? Color.muted : (overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
 
     implicitWidth: showing ? row.implicitWidth : 0
     implicitHeight: showing ? barSize : 0
@@ -49,23 +58,23 @@ BarWidget {
             // nf-fa-tasks for the ordinary day; nf-fa-unlink when we cannot ask.
             // Not knowing is not the same alarm as having work to do, and must
             // never be mistaken for it.
-            text: root.needsAttention ? "" : ""
+            text: root.needsAttention ? "" : ""
             font.family: bar ? bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
-            color: root.needsAttention ? Color.muted : (root.overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
+            color: root.tone
             textFormat: Text.PlainText
         }
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            visible: root.outstanding > 0
+            visible: root.outstanding > 0 && !root.needsAttention
             text: String(root.outstanding)
             font.family: bar ? bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
             // While the answer is Stale this count is the last thing we were
             // told, not what is true now. It should not look as certain as a
             // fresh one, and the glyph beside it already admits we cannot ask.
-            color: root.state === State.STALE || root.needsAttention ? Color.muted : (root.overdue ? Color.urgent : (bar ? bar.foreground : Color.foreground))
+            color: root.tone
             textFormat: Text.PlainText
         }
     }
