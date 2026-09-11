@@ -53,21 +53,36 @@ Item {
     property bool versionChecked: false
     property bool versionOk: false
 
+    // Bumped whenever the binary we talk to changes. A callback carrying a stale
+    // epoch belongs to a process started against a different binary, and its
+    // answer must not be written into the state we hold now.
+    property int epoch: 0
+    property int versionEpoch: 0
+    property int todayEpoch: 0
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
             console.warn("oxidone: configured path is not absolute:", resolvedBinary);
+            root.consecutiveFailures += 1;
+            root.scheduleNext(1);
             return;
         }
         if (!versionChecked) {
+            root.versionEpoch = root.epoch;
             versionProc.running = true;
             return;
         }
         if (!versionOk) {
+            // Defensive: the version handler clears versionChecked so a retry
+            // re-runs the check. Reaching here still must not stop the clock.
             root.state = State.UNUSABLE;
+            root.consecutiveFailures += 1;
+            root.scheduleNext(1);
             return;
         }
         if (!todayProc.running) {
+            root.todayEpoch = root.epoch;
             todayProc.running = true;
         }
     }
@@ -79,8 +94,10 @@ Item {
 
     // Re-check the binary whenever the person points us somewhere else.
     onResolvedBinaryChanged: {
+        epoch += 1;
         versionChecked = false;
         versionOk = false;
+        consecutiveFailures = 0;
         refresh();
     }
 
@@ -90,14 +107,22 @@ Item {
         maxBytes: 256
         deadlineMs: 5000
         onFinishedWith: function (out, err, code, tooLarge) {
+            if (root.versionEpoch !== root.epoch) {
+                return;
+            }
             root.versionChecked = true;
             root.versionOk = code === 0 && !tooLarge && Version.satisfies(Version.parseVersion(out), Version.MINIMUM);
             if (!root.versionOk) {
                 root.state = State.UNUSABLE;
                 console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.1.0");
+                // Do not latch: the next retry re-runs the check, so replacing the
+                // binary in place at the same path is eventually picked up.
+                root.versionChecked = false;
+                root.consecutiveFailures += 1;
                 root.scheduleNext(1);
                 return;
             }
+            root.consecutiveFailures = 0;
             root.refresh();
         }
     }
@@ -110,6 +135,9 @@ Item {
         maxBytes: 262144
         deadlineMs: 30000
         onFinishedWith: function (out, err, code, tooLarge) {
+            if (root.todayEpoch !== root.epoch) {
+                return;
+            }
             if (code !== 0 || tooLarge) {
                 root.consecutiveFailures += 1;
                 root.state = tooLarge ? State.STALE : State.stateForExit(code);
