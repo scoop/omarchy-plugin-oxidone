@@ -1,6 +1,6 @@
 # omarchy-plugin-oxidone
 
-An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://github.com/erwins-enkel/oxidone). It is a *thin client over the oxidone binary*, never a second Google Tasks client: oxidone owns Google, the credentials, and the domain.
+An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://github.com/erwins-enkel/oxidone). It is a _thin client over the oxidone binary_, never a second Google Tasks client: oxidone owns Google, the credentials, and the domain.
 
 ## Imported language
 
@@ -29,7 +29,7 @@ One invocation of oxidone's machine-readable mode — the plugin's only route to
 _Avoid_: backend, API client, daemon, service, RPC.
 
 **Snapshot**:
-The last set of entries a Bridge returned successfully, kept by the plugin and rendered whenever a newer one cannot be had. It is *per-machine and non-authoritative* — never Google's truth, and never oxidone's cache, which the plugin does not read.
+The last set of entries a Bridge returned successfully, kept by the plugin and rendered whenever a newer one cannot be had. It is _per-machine and non-authoritative_ — never Google's truth, and never oxidone's cache, which the plugin does not read.
 _Avoid_: cache, mirror (that is oxidone's live-task store), store, state.
 
 **Stale**:

@@ -28,7 +28,7 @@ is authoritative. Slice 1 uses only:
 
 - `oxidone json today` → `{"today": "YYYY-MM-DD", "entries": [Entry, …]}`
 - `Entry` → `{id, list, parent, title, display_title, type, has_notes, due,
-  status, completed_at, position}` where `type` is `task|event|note` and
+status, completed_at, position}` where `type` is `task|event|note` and
   `status` is `needsAction|completed`
 - failures print `{"error":{"kind","message"}}` on **stderr** with exit codes
   1–7; stdout stays empty
@@ -84,7 +84,7 @@ and shows a non-modal inline error that clears on the next good poll.
 ## Slices
 
 1. **Indicator** — manifest, Service, polling, Snapshot, staleness, auth state,
-   version gate. Read-only, no Pane. *This plan.*
+   version gate. Read-only, no Pane. _This plan._
 2. **Pane** — overlay, Today and List scopes, rows, keyboard navigation. Reads only.
 3. **Writes** — the eight `apply` ops, optimistic updates, failure handling.
 
