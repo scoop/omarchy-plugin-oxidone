@@ -201,6 +201,7 @@ git commit -m "chore: scaffold plugin, manifest and tooling"
 
 - Create: `src/today.js`
 - Test: `test/today.test.js`
+- Modify: `eslint.config.js` — Task 1's config forces `sourceType: "commonjs"` on `test/**/*.js`, which cannot parse `import { test, expect } from "bun:test"`. Split it: `src/**/*.js` stays commonjs (QML's engine loads it), `test/**/*.js` becomes `sourceType: "module"`.
 
 **Interfaces:**
 
