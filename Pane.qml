@@ -59,6 +59,21 @@ Item {
     // between a clear day and a question nobody has asked yet.
     readonly property bool hasAnswer: service !== null && service.payload !== null && service.payload !== undefined
 
+    readonly property bool needsAttention: root.serviceState === "auth-needed" || root.serviceState === "unusable"
+
+    readonly property string message: {
+        if (root.serviceState === "unusable") {
+            return "No usable oxidone was found at the configured path. This plugin needs oxidone 1.2.0 or newer, installed separately.";
+        }
+        if (root.serviceState === "auth-needed") {
+            return "oxidone has no usable Google authorization. Run it once to authorize; this plugin never asks for consent itself.";
+        }
+        if (root.serviceState === "stale") {
+            return "Showing the last answer — oxidone could not be reached.";
+        }
+        return root.hasAnswer ? "Nothing due today." : "No answer from oxidone yet.";
+    }
+
     // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
     readonly property string fontFamily: Style.font.menuFamily
 
@@ -179,20 +194,33 @@ Item {
                     textFormat: Text.PlainText
                 }
 
-                Text {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    visible: root.rows.length === 0
-                    text: root.hasAnswer ? "Nothing due today." : "No answer from oxidone yet."
-                    color: Color.muted
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    textFormat: Text.PlainText
+                    visible: root.rows.length === 0 || root.needsAttention || root.serviceState === "stale"
+                    spacing: Style.spacing.xs
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.message
+                        color: Color.menu.text
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                    }
+
+                    Button {
+                        visible: root.needsAttention
+                        text: "Open oxidone"
+                        onClicked: root.openTui()
+                    }
                 }
 
                 ListView {
                     id: list
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    visible: !root.needsAttention
                     clip: true
                     model: root.rows
                     spacing: Style.spacing.rowGap
