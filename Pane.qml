@@ -31,6 +31,15 @@ Item {
         // to design for.
         if (root.service) {
             root.service.loadLists();
+            // A List scope outlives close(), and `onScopeChanged` is the only
+            // other caller — so without this the pane reopens on a List hours
+            // later still showing the entries it read then, unstruck and with
+            // nothing saying so (`stale` is a Today-poll fact). Same route as
+            // a scope change: the Service's in-flight and identity guards own
+            // the rest of it.
+            if (root.scope !== "") {
+                root.service.loadList(root.scope);
+            }
         }
         // The window and its content need a layout pass before focus will
         // land, which is why this is deferred rather than called outright.
