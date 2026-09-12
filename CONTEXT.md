@@ -6,7 +6,7 @@ An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://githu
 
 The task domain is oxidone's and is not restated here. **List**, **Task**, **Subtask**, **Entry type**, **Signifier**, **Notes**, **Display title**, **Due date**, **Today**, **Migrate**, **Status**, and the four exits are defined in [oxidone's CONTEXT.md](https://github.com/erwins-enkel/oxidone/blob/main/CONTEXT.md) and mean exactly what they mean there. A definition restated in two glossaries is a definition free to drift — in particular **Today**, whose membership the Indicator's count must equal.
 
-One divergence is live: `oxidone json today` is status-blind, so it returns Completed entries whenever they were completed, while the glossary's **Today** admits a Completed row only if it was completed today. The glossary's rule is the one that holds here — the plugin filters locally until [erwins-enkel/oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135) settles it.
+One divergence used to live here, and is now closed. `oxidone json today` was status-blind, returning Completed entries whenever they were completed; [erwins-enkel/oxidone#137](https://github.com/erwins-enkel/oxidone/pull/137) narrowed it to today's completions, and the plugin's `>= 1.2.0` floor is what enforces it. The plugin keeps no **Today** filter of its own — the second definition that [#135](https://github.com/erwins-enkel/oxidone/issues/135) existed to remove stays removed.
 
 The terms below are the ones this context adds.
 
