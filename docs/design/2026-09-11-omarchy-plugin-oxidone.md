@@ -84,9 +84,44 @@ and shows a non-modal inline error that clears on the next good poll.
 ## Slices
 
 1. **Indicator** — manifest, Service, polling, Snapshot, staleness, auth state,
-   version gate. Read-only, no Pane. _This plan._
+   version gate. Read-only, no Pane. _Shipped._
 2. **Pane** — overlay, Today and List scopes, rows, keyboard navigation. Reads only.
+   _In progress._
 3. **Writes** — the eight `apply` ops, optimistic updates, failure handling.
+
+## Slice 2 decisions
+
+**Kind.** `overlay`. The shell treats `panel`/`overlay`/`menu` identically — one
+Loader, one `entryPoints` key — and the plugin builds its own `PanelWindow` and
+decides its own geometry. `overlay` is the convention for a full-screen scrim
+plus a centred card, which is what this is.
+
+**Contract.** The entry point exposes `open(payloadJson)`, `close()` and a
+`readonly property bool opened`; the shell's `toggle`/`summon`/`hide` and
+`isPluginOpen` are all defined in terms of those three.
+
+**The click changes meaning.** Declaring `overlay` excludes the plugin from the
+bar-widget summon path, so the Indicator's click routes to the Pane instead of
+the TUI. The TUI does not become unreachable: the Pane's footer offers it, and
+the Auth-needed state makes it the primary action, since that is the one thing
+the Pane cannot fix.
+
+**Keyboard.** Use `qs.Ui.PanelKeyCatcher` rather than hand-rolling a
+`Keys.onPressed` block. It already gives `moveRequested`, `activateRequested`,
+`closeRequested`, `deleteRequested` and `textKey`, and — the part that matters —
+a `blocked` flag so an inline text field can own the keyboard without the
+catcher stealing from it.
+
+**List rendering.** There is no shared list component; every first-party panel
+hand-builds a `ListView` with its own delegate. Follow the house recipe:
+`ListView` + delegate, `PanelSectionHeader` for group headers, `PointerMoveGate`
+so a list moving under a still pointer cannot steal the keyboard cursor, and
+`CursorSurface` semantics so only one highlight exists on screen.
+
+**Today's definition moves upstream.** oxidone#137 narrowed `json today` to
+today's completions, with timezone handling. The floor therefore rises to the
+release carrying it, and the plugin keeps no completed-today filter of its own —
+the second definition of Today that #135 existed to remove stays removed.
 
 ## Marketplace constraints that shape the code
 
