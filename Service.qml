@@ -241,8 +241,15 @@ Item {
                 return;
             }
             try {
-                var payload = JSON.parse(out);
-                root.lists = Array.isArray(payload.lists) ? payload.lists.slice(0, 200) : [];
+                var lists = Today.parseLists(out);
+                if (lists === null) {
+                    // Refused whole. The selector keeps what it last knew and
+                    // always keeps Today; a half-read list of lists would be a
+                    // guess, and the Pane dereferences these inside a binding.
+                    console.warn("oxidone: lists answer refused, keeping the selector as it was");
+                    return;
+                }
+                root.lists = lists;
             } catch (error) {
                 console.warn("oxidone: unreadable lists:", error.message);
             }

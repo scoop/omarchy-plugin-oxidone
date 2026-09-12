@@ -60,6 +60,42 @@ function parseList(stdout) {
   return payload;
 }
 
+// The selector's options. This is the one answer a QML binding dereferences
+// field by field (`Pane.qml`'s `scopeOptions`), and a TypeError there takes the
+// whole binding down with it — the selector would lose even its "Today" row and
+// every h/l would throw. Two hundred lists is already far past what a Google
+// account carries.
+var MAX_LISTS = 200;
+
+// Refused whole — `null`, never a partial — when the envelope is wrong, so a
+// truncated or foreign answer cannot pass for a shorter list of lists. Inside a
+// sound envelope an entry that is not an { id, title } pair is dropped: it is
+// not something the selector can name or fetch.
+function parseLists(stdout) {
+  var payload = JSON.parse(stdout);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  if (!Array.isArray(payload.lists)) {
+    return null;
+  }
+  if (payload.lists.length > MAX_LISTS) {
+    return null;
+  }
+  var out = [];
+  for (var i = 0; i < payload.lists.length; i++) {
+    var list = payload.lists[i];
+    if (!list || typeof list !== "object" || Array.isArray(list)) {
+      continue;
+    }
+    if (typeof list.id !== "string" || list.id === "" || typeof list.title !== "string") {
+      continue;
+    }
+    out.push(list);
+  }
+  return out;
+}
+
 // The bar's number: outstanding work. An Event occupies the day as a Task does,
 // so it counts; a Note is not work you finish, so it does not. This is the
 // Due-load's rule, not the Completion meter's.
@@ -85,8 +121,10 @@ function hasOverdue(payload) {
 if (typeof module !== "undefined") {
   module.exports = {
     MAX_ENTRIES: MAX_ENTRIES,
+    MAX_LISTS: MAX_LISTS,
     parseToday: parseToday,
     parseList: parseList,
+    parseLists: parseLists,
     outstandingCount: outstandingCount,
     hasOverdue: hasOverdue,
   };
