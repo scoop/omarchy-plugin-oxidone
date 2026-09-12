@@ -36,15 +36,13 @@ Item {
         root.opened = false;
     }
 
-    function toggle() {
-        if (root.opened) {
-            root.close();
-        } else {
-            root.open("{}");
-        }
-    }
+    // Not `state`: QQuickItem already has one, for its States/Transitions
+    // machinery, and shadowing it would misbehave the moment anything here grew
+    // a states block.
+    readonly property string serviceState: service ? service.state : "ok"
 
-    readonly property string state: service ? service.state : "ok"
+    // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
+    readonly property string fontFamily: Style.font.menuFamily
 
     PanelWindow {
         id: panel
@@ -80,6 +78,10 @@ Item {
             width: Math.min(Style.space(460), panel.width - Style.space(40))
             height: Math.min(Style.space(540), panel.height - Style.space(40))
             color: Color.menu.background
+            // Follow the compositor's own rounding rather than picking a number:
+            // Style.cornerRadius mirrors Hyprland's decoration:rounding live, so
+            // the card is square on a square desktop and round on a round one.
+            radius: Style.cornerRadius
             borderSpec: Border.surfaceSpec("menu", "border", Color.menu.border, Math.max(1, Style.space(2)))
 
             MouseArea {
@@ -120,7 +122,7 @@ Item {
                     Layout.fillWidth: true
                     text: "esc close"
                     color: Color.muted
-                    font.family: Style.font.family
+                    font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     textFormat: Text.PlainText
                 }
