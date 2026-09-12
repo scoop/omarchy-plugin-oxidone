@@ -75,6 +75,7 @@ Item {
     }
 
     onScopeChanged: {
+        scopeDropdown.value = root.scope;
         // selectedIndex is derived from selectedId, so the cursor resets by
         // clearing the id rather than the (read-only) derived index.
         root.selectedId = "";
@@ -257,10 +258,15 @@ Item {
                 }
 
                 Dropdown {
+                    id: scopeDropdown
                     Layout.fillWidth: true
                     options: root.scopeOptions
-                    value: root.scope
-                    // The signal is `changed(string value)`, not `selected`.
+                    // Deliberately NOT `value: root.scope`. Dropdown assigns to
+                    // its own `value` when a selection is made, and an
+                    // imperative assignment destroys a declarative binding for
+                    // good — so after the first mouse use the trigger label
+                    // would stop tracking the scope, and h/l would change the
+                    // list while the selector kept naming the old one.
                     onChanged: function (value) {
                         root.scope = value;
                     }

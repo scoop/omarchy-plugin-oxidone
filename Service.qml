@@ -238,7 +238,15 @@ Item {
                 return;
             }
             try {
-                root.listPayload = Today.parseList(out);
+                var payload = Today.parseList(out);
+                if (payload.list !== root.listId) {
+                    // The scope changed while this was in flight. Showing this
+                    // would put one list's entries under another list's name,
+                    // so discard it and fetch what is actually wanted now.
+                    tasksProc.start();
+                    return;
+                }
+                root.listPayload = payload;
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
             }
