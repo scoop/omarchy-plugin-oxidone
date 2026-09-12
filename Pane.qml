@@ -44,6 +44,11 @@ Item {
 
     readonly property var rows: service && service.payload ? Rows.buildRows(service.payload) : []
 
+    // An answer has arrived, as distinct from an answer being "ok". The Service
+    // starts at ok deliberately, so state alone cannot tell the difference
+    // between a clear day and a question nobody has asked yet.
+    readonly property bool hasAnswer: service !== null && service.payload !== null && service.payload !== undefined
+
     // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
     readonly property string fontFamily: Style.font.menuFamily
 
@@ -114,7 +119,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: root.rows.length === 0
-                    text: root.serviceState === "ok" ? "Nothing due today." : "No answer from oxidone yet."
+                    text: root.hasAnswer ? "Nothing due today." : "No answer from oxidone yet."
                     color: Color.muted
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -168,10 +173,19 @@ Item {
                     // The count drops away at zero outstanding, along with its
                     // colour: a group with nothing left to move is just a
                     // heading over what already happened.
-                    PanelSectionHeader {
+                    //
+                    // A plain Text, not a second PanelSectionHeader: that component
+                    // darkens whatever colour it is handed by 1.4, which takes the
+                    // muted count from 4.16:1 against the card to 2.48:1 — below
+                    // even the large-text threshold. Every other muted glyph in
+                    // this pane is a plain Text at Color.muted; the count matches.
+                    Text {
                         visible: row.count > 0
                         text: String(row.count)
-                        foreground: row.urgent ? Color.urgent : Color.muted
+                        color: row.urgent ? Color.urgent : Color.muted
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
                         textFormat: Text.PlainText
                     }
                 }
