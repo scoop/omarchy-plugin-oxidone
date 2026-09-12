@@ -88,13 +88,23 @@ Item {
         if (root.scope === "") {
             return service && service.payload ? Rows.buildRows(service.payload) : [];
         }
-        return service && service.listPayload ? Rows.buildListRows(service.listPayload) : [];
+        var listPayload = service ? service.listPayload : null;
+        // Only this list's answer may be drawn under this list's name. A failed
+        // load leaves the previous list's answer cached, and rendering it here
+        // is the same lie the Service's own guard prevents upstream — the
+        // fetcher checks identity, and so must the renderer.
+        return listPayload && listPayload.list === root.scope ? Rows.buildListRows(listPayload) : [];
     }
 
     // An answer has arrived, as distinct from an answer being "ok". The Service
     // starts at ok deliberately, so state alone cannot tell the difference
     // between a clear day and a question nobody has asked yet.
     readonly property bool hasAnswer: service !== null && service.payload !== null && service.payload !== undefined
+
+    // Whether the scope on screen has an answer of its own. `hasAnswer` speaks
+    // for Today; a List has its own load, which can be absent or stale while
+    // Today's is perfectly fine.
+    readonly property bool hasScopeAnswer: root.scope === "" ? root.hasAnswer : (service !== null && service.listPayload !== null && service.listPayload !== undefined && service.listPayload.list === root.scope)
 
     readonly property bool needsAttention: root.serviceState === "auth-needed" || root.serviceState === "unusable"
 
@@ -111,7 +121,10 @@ Item {
             // answer to be showing.
             return root.hasAnswer ? "Showing the last answer — oxidone could not be reached." : "No answer from oxidone yet.";
         }
-        return root.hasAnswer ? "Nothing due today." : "No answer from oxidone yet.";
+        if (!root.hasScopeAnswer) {
+            return "No answer from oxidone yet.";
+        }
+        return root.scope === "" ? "Nothing due today." : "Nothing in this list.";
     }
 
     // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
