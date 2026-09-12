@@ -42,8 +42,16 @@ BarWidget {
     // WidgetButton keeps a horizontal margin, the icon widgets sit in a fixed
     // slot wider than their glyph. Without that the indicator butts straight
     // against whatever plugin is next to it.
-    implicitWidth: showing ? row.implicitWidth + Style.space(14) : 0
-    implicitHeight: showing ? barSize : 0
+    //
+    // Which edge that padding belongs on depends on the bar: a horizontal bar
+    // lays its widgets out in a Row, a vertical one in a Column, so the gap
+    // that separates us from a neighbour runs along the other axis and the
+    // remaining one is simply the bar's own thickness. 14 puts a lone glyph in
+    // a slot the size of the icon widgets beside it.
+    readonly property int slotPadding: Style.space(14)
+
+    implicitWidth: showing ? (vertical ? barSize : content.implicitWidth + slotPadding) : 0
+    implicitHeight: showing ? (vertical ? content.implicitHeight + slotPadding : barSize) : 0
     visible: showing
 
     function pushSettings() {
@@ -58,13 +66,20 @@ BarWidget {
     onServiceChanged: pushSettings()
     Component.onCompleted: pushSettings()
 
-    Row {
-        id: row
+    // A Grid rather than a Row: on a vertical bar the glyph and its count have
+    // to stack, because side by side they would run out past the bar's edge as
+    // soon as the count reaches two digits. Positioners manage their children's
+    // position on the axes they lay out along, so the centering that a Row let
+    // the children anchor for themselves is the Grid's own alignment here.
+    Grid {
+        id: content
         anchors.centerIn: parent
+        columns: root.vertical ? 1 : 2
         spacing: Style.spacing.xs
+        horizontalItemAlignment: Grid.AlignHCenter
+        verticalItemAlignment: Grid.AlignVCenter
 
         Text {
-            anchors.verticalCenter: parent.verticalCenter
             // nf-fa-tasks for the ordinary day; nf-fa-unlink when we cannot ask.
             // Not knowing is not the same alarm as having work to do, and must
             // never be mistaken for it.
@@ -76,7 +91,6 @@ BarWidget {
         }
 
         Text {
-            anchors.verticalCenter: parent.verticalCenter
             visible: root.outstanding > 0 && !root.needsAttention
             text: String(root.outstanding)
             font.family: bar ? bar.fontFamily : Style.font.family
