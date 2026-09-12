@@ -124,3 +124,26 @@ test("only entry rows are selectable", () => {
   const rows = buildRows(payload([entry({}), entry({ id: "t2", due: "2026-07-18" })]));
   expect(selectableIndexes(rows)).toEqual([1, 3]);
 });
+
+test("line and paragraph separators are replaced like any other break", () => {
+  const ch = String.fromCharCode;
+  expect(plain("a" + ch(0x2028) + "b")).toBe("a b");
+  expect(plain("a" + ch(0x2029) + "b")).toBe("a b");
+});
+
+test("a title cut mid-emoji does not leave half a character behind", () => {
+  const out = plain("x".repeat(MAX_TITLE - 2) + String.fromCodePoint(0x1f600) + "y");
+  expect(out.length).toBeLessThanOrEqual(MAX_TITLE);
+  expect(out.endsWith("…")).toBe(true);
+  for (let i = 0; i < out.length; i++) {
+    const c = out.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = out.charCodeAt(i + 1);
+      expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) {
+      const prev = out.charCodeAt(i - 1);
+      expect(prev >= 0xd800 && prev <= 0xdbff).toBe(true);
+    }
+  }
+});

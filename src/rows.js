@@ -20,11 +20,18 @@ function plain(text, max) {
   // The class below is written as escapes on purpose: literal control bytes in
   // a source file are what stop the marketplace's baseline scanner dead.
   var out = String(text === undefined || text === null ? "" : text).replace(
-    /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g,
+    /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]/g,
     " ",
   );
   if (out.length > limit) {
-    out = out.slice(0, limit - 1) + "…";
+    var cut = limit - 1;
+    // Never cut between a surrogate pair: the orphaned half renders as a
+    // replacement glyph right where the eye lands, at the elision.
+    var last = out.charCodeAt(cut - 1);
+    if (last >= 0xd800 && last <= 0xdbff) {
+      cut -= 1;
+    }
+    out = out.slice(0, cut) + "…";
   }
   return out;
 }
