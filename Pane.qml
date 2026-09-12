@@ -238,9 +238,25 @@ Item {
                 onClicked: {}
             }
 
+            PointerMoveGate {
+                id: pointerGate
+                referenceItem: card
+            }
+
+            // The catcher is the ANCESTOR of the content, not its sibling.
+            // `Keys.priority: Keys.BeforeItem` preempts DESCENDANTS only, and a
+            // sibling never sees a key a focused child already took — so with
+            // the content outside, one click on the selector (which calls
+            // `trigger.forceActiveFocus()`, Ui/Dropdown.qml:138) left the whole
+            // pane deaf, Esc included, on a surface holding exclusive keyboard
+            // focus. This is the nesting Ui/PanelKeyCatcher.qml documents and
+            // the one the host's own dev-gallery panel uses.
             PanelKeyCatcher {
                 id: keys
                 anchors.fill: parent
+                // The popup owns j/k and Enter while it is open; the pane's
+                // cursor must hold still rather than move underneath it.
+                blocked: scopeDropdown.popupOpen
                 onCloseRequested: root.close()
                 onMoveRequested: function (dx, dy) {
                     if (dy !== 0) {
@@ -252,106 +268,109 @@ Item {
                 // Enter opens the place where things can actually be changed.
                 // This release reads; the TUI is where the day gets worked.
                 onReturnRequested: root.openTui()
-            }
-
-            PointerMoveGate {
-                id: pointerGate
-                referenceItem: card
-            }
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Style.spacing.panelPadding
-                spacing: Style.spacing.panelGap
-
-                // The pane's own name, not the scope.
-                //
-                // This said "Today" until it was seen with a List selected:
-                // the title, the selector under it and the first group header
-                // all read "Today" at once, and the moment the scope changed
-                // the title contradicted the selector directly below it. The
-                // selector already names the scope; this names the pane, which
-                // is what a keyboard-summoned overlay needs to say.
-                PanelSectionHeader {
-                    Layout.fillWidth: true
-                    text: "oxidone"
-                    textFormat: Text.PlainText
-                }
-
-                Dropdown {
-                    id: scopeDropdown
-                    Layout.fillWidth: true
-                    options: root.scopeOptions
-                    // Deliberately NOT `value: root.scope`. Dropdown assigns to
-                    // its own `value` when a selection is made, and an
-                    // imperative assignment destroys a declarative binding for
-                    // good — so after the first mouse use the trigger label
-                    // would stop tracking the scope, and h/l would change the
-                    // list while the selector kept naming the old one.
-                    onChanged: function (value) {
-                        root.scope = value;
-                    }
-                }
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: root.rows.length === 0 || root.needsAttention || (root.scope === "" && root.serviceState === "stale")
-                    spacing: Style.spacing.xs
+                    anchors.fill: parent
+                    anchors.margins: Style.spacing.panelPadding
+                    spacing: Style.spacing.panelGap
 
-                    Text {
+                    // The pane's own name, not the scope.
+                    //
+                    // This said "Today" until it was seen with a List selected:
+                    // the title, the selector under it and the first group header
+                    // all read "Today" at once, and the moment the scope changed
+                    // the title contradicted the selector directly below it. The
+                    // selector already names the scope; this names the pane, which
+                    // is what a keyboard-summoned overlay needs to say.
+                    PanelSectionHeader {
                         Layout.fillWidth: true
-                        text: root.message
-                        color: Color.menu.text
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.body
-                        wrapMode: Text.WordWrap
+                        text: "oxidone"
                         textFormat: Text.PlainText
                     }
 
-                    Button {
-                        visible: root.needsAttention
-                        text: "Open oxidone"
-                        onClicked: root.openTui()
+                    Dropdown {
+                        id: scopeDropdown
+                        Layout.fillWidth: true
+                        options: root.scopeOptions
+                        // Deliberately NOT `value: root.scope`. Dropdown assigns to
+                        // its own `value` when a selection is made, and an
+                        // imperative assignment destroys a declarative binding for
+                        // good — so after the first mouse use the trigger label
+                        // would stop tracking the scope, and h/l would change the
+                        // list while the selector kept naming the old one.
+                        onChanged: function (value) {
+                            root.scope = value;
+                        }
+                        // Clicking the trigger takes active focus and nothing
+                        // ever hands it back, so the keys have to be taken
+                        // back explicitly the moment the popup lets go of them.
+                        onPopupOpenChanged: {
+                            if (!scopeDropdown.popupOpen) {
+                                keys.forceActiveFocus();
+                            }
+                        }
                     }
-                }
 
-                ListView {
-                    id: list
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    // The list shows whenever there is one, whatever the state:
-                    // auth-needed and unusable describe a fetch that failed, not
-                    // data that became false, and hiding a real list loses
-                    // information the message block is already explaining. The
-                    // message says whether it can be trusted; the list says what
-                    // it was.
-                    visible: root.rows.length > 0
-                    clip: true
-                    model: root.rows
-                    spacing: Style.spacing.rowGap
-                    // The list owns its scroll position across model updates;
-                    // a Flickable would lose it on every poll.
-                    boundsBehavior: Flickable.StopAtBounds
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.rows.length === 0 || root.needsAttention || (root.scope === "" && root.serviceState === "stale")
+                        spacing: Style.spacing.xs
 
-                    delegate: Loader {
-                        width: ListView.view.width
-                        sourceComponent: modelData.kind === "header" ? headerDelegate : entryDelegate
-                        property var row: modelData
-                        property int rowIndex: index
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.message
+                            color: Color.menu.text
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.body
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                        }
+
+                        Button {
+                            visible: root.needsAttention
+                            text: "Open oxidone"
+                            onClicked: root.openTui()
+                        }
                     }
-                }
 
-                PanelSeparator {
-                    Layout.fillWidth: true
-                }
+                    ListView {
+                        id: list
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        // The list shows whenever there is one, whatever the state:
+                        // auth-needed and unusable describe a fetch that failed, not
+                        // data that became false, and hiding a real list loses
+                        // information the message block is already explaining. The
+                        // message says whether it can be trusted; the list says what
+                        // it was.
+                        visible: root.rows.length > 0
+                        clip: true
+                        model: root.rows
+                        spacing: Style.spacing.rowGap
+                        // The list owns its scroll position across model updates;
+                        // a Flickable would lose it on every poll.
+                        boundsBehavior: Flickable.StopAtBounds
 
-                Text {
-                    Layout.fillWidth: true
-                    text: "j/k move · h/l scope · enter open oxidone · esc close"
-                    color: Color.muted
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    textFormat: Text.PlainText
+                        delegate: Loader {
+                            width: ListView.view.width
+                            sourceComponent: modelData.kind === "header" ? headerDelegate : entryDelegate
+                            property var row: modelData
+                            property int rowIndex: index
+                        }
+                    }
+
+                    PanelSeparator {
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "j/k move · h/l scope · enter open oxidone · esc close"
+                        color: Color.muted
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        textFormat: Text.PlainText
+                    }
                 }
             }
 
