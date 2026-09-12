@@ -44,10 +44,14 @@ zero. The count is **outstanding work in Today**: cross-List, `due <= today`,
 undated excluded, still `needsAction`, Tasks and Events but not Notes — the
 Due-load's rule, not the Completion meter's.
 
-**Today's drift.** `json today` is status-blind; the glossary admits a Completed
-row only if it was completed today. The glossary wins here and the plugin
-filters locally until [oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135)
-settles it.
+**Today's drift.** ~~`json today` is status-blind; the glossary admits a
+Completed row only if it was completed today. The glossary wins here and the
+plugin filters locally until
+[oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135) settles
+it.~~ **Superseded by "Today's definition moves upstream" in Slice 2
+decisions:** #135 was settled by oxidone#137, which narrowed `json today`
+upstream. The plugin carries no local filter, and the 1.2.0 floor is what
+enforces it.
 
 **Colour.** `urgent` when anything outstanding is overdue, otherwise
 `foreground`; `muted` when Stale. Tokens only — `qs.Commons.Color` and
@@ -55,10 +59,13 @@ settles it.
 anywhere in the tree.
 
 **States.** Exit 3 (`auth_expired`, `not_configured`, `token_store_failed`) is
-**Auth-needed**: a distinct quiet indicator whose click launches the TUI, where
-consent belongs. Exit 4 is **Stale**: keep the Snapshot, go muted. Exit 5 is
-Stale with an hour's backoff, since nothing smaller can change a quota. Exits 1
-and 2 are plugin faults — stay on the Snapshot, log, never nag.
+**Auth-needed**: a distinct quiet indicator. (Its click launched the TUI
+directly in slice 1; see "The click changes meaning" in Slice 2 decisions —
+the click now opens the Pane, which makes the TUI its primary action, since
+re-consenting is the one thing the Pane cannot do.) Exit 4 is **Stale**: keep
+the Snapshot, go muted. Exit 5 is Stale with an hour's backoff, since nothing
+smaller can change a quota. Exits 1 and 2 are plugin faults — stay on the
+Snapshot, log, never nag.
 
 **Snapshot.** The last good answer, held in memory by the `keepLoaded` Service.
 Not persisted to disk in slice 1: the first poll lands seconds after the shell
@@ -86,7 +93,7 @@ and shows a non-modal inline error that clears on the next good poll.
 1. **Indicator** — manifest, Service, polling, Snapshot, staleness, auth state,
    version gate. Read-only, no Pane. _Shipped._
 2. **Pane** — overlay, Today and List scopes, rows, keyboard navigation. Reads only.
-   _In progress._
+   _Shipped._
 3. **Writes** — the eight `apply` ops, optimistic updates, failure handling.
 
 ## Slice 2 decisions
