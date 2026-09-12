@@ -419,7 +419,14 @@ Item {
                 id: entryDelegate
 
                 CursorSurface {
-                    height: Math.max(Style.space(22), titleText.implicitHeight)
+                    // Fixed, and clipped to it — the condition the Task 2 ruling
+                    // accepted combining-mark titles on. Bounding code units
+                    // cannot bound ink: glyphs that stack out of their line box
+                    // are cut at this row's own edge instead of drawing over the
+                    // rows either side. controlHeight is the height every other
+                    // control row in the kit stands at, the Dropdown included.
+                    height: Style.spacing.controlHeight
+                    clip: true
                     hasCursor: rowIndex === root.selectedIndex
                     current: rowIndex === root.selectedIndex
 
