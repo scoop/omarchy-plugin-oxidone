@@ -44,6 +44,16 @@ Item {
     property var listPayload: null
     property string listId: ""
 
+    // The list the running request was actually started for. `listId` is what is
+    // wanted; this is what was asked for. They differ exactly while a request is
+    // in flight and the scope has moved on.
+    property string listRequestedId: ""
+
+    // Consecutive answers that named a list nobody asked for. Bounded, because a
+    // binary that keeps answering for the wrong list would otherwise be retried
+    // forever.
+    property int listStaleDiscards: 0
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -109,10 +119,22 @@ Item {
         }
     }
 
+    // A single place that starts a request, so `listId` (what is wanted) and
+    // `listRequestedId` (what was asked for) can never drift apart.
+    function startListLoad() {
+        root.listRequestedId = root.listId;
+        tasksProc.start();
+    }
+
     function loadList(id) {
         root.listId = id;
-        if (versionOk && !tasksProc.running) {
-            tasksProc.start();
+        if (!versionOk) {
+            return;
+        }
+        // A request already in flight is left to finish; its handler starts the
+        // one that is wanted by then, so a scope change is deferred, never lost.
+        if (!tasksProc.running) {
+            root.startListLoad();
         }
     }
 
@@ -235,17 +257,29 @@ Item {
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0 || tooLarge) {
                 console.warn("oxidone: list load failed, exit", code);
+                // Never retry the list that just failed — that would spin against
+                // a broken binary. But a newer scope queued behind this request
+                // was never sent, and dropping it strands the pane on the wrong
+                // list with nothing to say so.
+                if (root.listId !== root.listRequestedId) {
+                    root.startListLoad();
+                }
                 return;
             }
             try {
                 var payload = Today.parseList(out);
                 if (payload.list !== root.listId) {
                     // The scope changed while this was in flight. Showing this
-                    // would put one list's entries under another list's name,
-                    // so discard it and fetch what is actually wanted now.
-                    tasksProc.start();
+                    // would put one list's entries under another list's name.
+                    root.listStaleDiscards += 1;
+                    if (root.listStaleDiscards > 3) {
+                        console.warn("oxidone: list answers keep naming a different list; giving up");
+                        return;
+                    }
+                    root.startListLoad();
                     return;
                 }
+                root.listStaleDiscards = 0;
                 root.listPayload = payload;
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
