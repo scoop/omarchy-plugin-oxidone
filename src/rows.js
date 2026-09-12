@@ -125,6 +125,39 @@ function buildRows(payload) {
   return rows;
 }
 
+// A List's own order is Manual order, which the CLI already returns, so rows
+// come out in the order they arrived. A Subtask nests one level under its
+// parent — never deeper, which the domain guarantees rather than this code.
+function buildListRows(payload) {
+  var byParent = {};
+  var roots = [];
+  for (var i = 0; i < payload.entries.length; i++) {
+    var entry = payload.entries[i];
+    if (entry.parent) {
+      if (!byParent[entry.parent]) {
+        byParent[entry.parent] = [];
+      }
+      byParent[entry.parent].push(entry);
+    } else {
+      roots.push(entry);
+    }
+  }
+
+  var rows = [];
+  for (var r = 0; r < roots.length; r++) {
+    var row = entryRow(roots[r], "");
+    row.depth = 0;
+    rows.push(row);
+    var children = byParent[roots[r].id] || [];
+    for (var c = 0; c < children.length; c++) {
+      var child = entryRow(children[c], "");
+      child.depth = 1;
+      rows.push(child);
+    }
+  }
+  return rows;
+}
+
 // Headers are drawn but never landed on, so the keyboard cursor needs the
 // indexes it may occupy rather than a range.
 function selectableIndexes(rows) {
@@ -144,6 +177,7 @@ if (typeof module !== "undefined") {
     signifierFor: signifierFor,
     dueLabel: dueLabel,
     buildRows: buildRows,
+    buildListRows: buildListRows,
     selectableIndexes: selectableIndexes,
   };
 }

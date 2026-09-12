@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseToday, outstandingCount, hasOverdue, MAX_ENTRIES } from "../src/today.js";
+import { parseToday, parseList, outstandingCount, hasOverdue, MAX_ENTRIES } from "../src/today.js";
 
 const entry = (over) =>
   Object.assign(
@@ -43,6 +43,31 @@ test("an answer with more entries than the cap is refused whole, not truncated",
 test("an entry that is not an object is refused rather than counted", () => {
   for (const bad of [null, 42, "x", []]) {
     expect(() => parseToday(JSON.stringify({ today: "2026-07-20", entries: [bad] }))).toThrow();
+  }
+});
+
+test("a well-formed tasks answer parses to its list id and entries", () => {
+  const parsed = parseList(JSON.stringify({ list: "L1", entries: [entry({})] }));
+  expect(parsed.list).toBe("L1");
+  expect(parsed.entries.length).toBe(1);
+});
+
+test("a tasks answer that is not an object is refused rather than guessed at", () => {
+  expect(() => parseList("[]")).toThrow();
+  expect(() => parseList('{"entries": []}')).toThrow();
+  expect(() => parseList('{"list": "L1"}')).toThrow();
+});
+
+test("a tasks answer with more entries than the cap is refused whole, not truncated", () => {
+  const many = { list: "L1", entries: new Array(MAX_ENTRIES + 1).fill(entry({})) };
+  expect(() => parseList(JSON.stringify(many))).toThrow();
+  const atCap = { list: "L1", entries: new Array(MAX_ENTRIES).fill(entry({})) };
+  expect(parseList(JSON.stringify(atCap)).entries.length).toBe(MAX_ENTRIES);
+});
+
+test("a tasks entry that is not an object is refused rather than counted", () => {
+  for (const bad of [null, 42, "x", []]) {
+    expect(() => parseList(JSON.stringify({ list: "L1", entries: [bad] }))).toThrow();
   }
 });
 

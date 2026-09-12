@@ -35,6 +35,31 @@ function parseToday(stdout) {
   return payload;
 }
 
+// `json tasks --list` answers with a list id where `today` answers with a
+// date. Same bounds, same entry checks, different required field.
+function parseList(stdout) {
+  var payload = JSON.parse(stdout);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("tasks: expected an object");
+  }
+  if (typeof payload.list !== "string") {
+    throw new Error("tasks: no `list` id");
+  }
+  if (!Array.isArray(payload.entries)) {
+    throw new Error("tasks: no `entries` array");
+  }
+  if (payload.entries.length > MAX_ENTRIES) {
+    throw new Error("tasks: more than " + MAX_ENTRIES + " entries");
+  }
+  for (var i = 0; i < payload.entries.length; i++) {
+    var entry = payload.entries[i];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("tasks: entry " + i + " is not an object");
+    }
+  }
+  return payload;
+}
+
 // The bar's number: outstanding work. An Event occupies the day as a Task does,
 // so it counts; a Note is not work you finish, so it does not. This is the
 // Due-load's rule, not the Completion meter's.
@@ -61,6 +86,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     MAX_ENTRIES: MAX_ENTRIES,
     parseToday: parseToday,
+    parseList: parseList,
     outstandingCount: outstandingCount,
     hasOverdue: hasOverdue,
   };

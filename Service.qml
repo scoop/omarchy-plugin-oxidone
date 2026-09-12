@@ -36,6 +36,14 @@ Item {
     // The Snapshot the Pane renders. Held in memory only, like the counts.
     property var payload: null
 
+    // The List scope: on-demand reads, never polled. `lists` is the
+    // selector's own options; `listPayload` is whichever List was last
+    // asked for, keyed loosely by `listId` rather than tracked per-id,
+    // since the Pane only ever looks at one List at a time.
+    property var lists: []
+    property var listPayload: null
+    property string listId: ""
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -89,6 +97,22 @@ Item {
         if (!todayProc.running) {
             root.todayEpoch = root.epoch;
             todayProc.start();
+        }
+    }
+
+    // On-demand, not polled: the Pane calls these when it opens or when the
+    // person picks a List, not on the five-minute clock, so neither touches
+    // `scheduleNext` or the failure state the poll cycle owns.
+    function loadLists() {
+        if (versionOk && !listsProc.running) {
+            listsProc.start();
+        }
+    }
+
+    function loadList(id) {
+        root.listId = id;
+        if (versionOk && !tasksProc.running) {
+            tasksProc.start();
         }
     }
 
@@ -175,6 +199,48 @@ Item {
                 root.state = State.STALE;
                 console.warn("oxidone: unreadable answer:", error.message);
                 root.scheduleNext(2);
+            }
+        }
+    }
+
+    // The two List reads. Neither is polled and neither is guarded by
+    // `epoch`: they only ever run because the Pane asked for them just now,
+    // against whichever binary `versionOk` already vetted, and a failure
+    // here describes that one on-demand fetch rather than the widget's
+    // overall health — it must not perturb `state` or the poll clock.
+    BoundedProcess {
+        id: listsProc
+        command: [root.resolvedBinary, "json", "lists"]
+        maxBytes: 65536
+        deadlineMs: 15000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            if (code !== 0 || tooLarge) {
+                console.warn("oxidone: lists failed, exit", code);
+                return;
+            }
+            try {
+                var payload = JSON.parse(out);
+                root.lists = Array.isArray(payload.lists) ? payload.lists.slice(0, 200) : [];
+            } catch (error) {
+                console.warn("oxidone: unreadable lists:", error.message);
+            }
+        }
+    }
+
+    BoundedProcess {
+        id: tasksProc
+        command: [root.resolvedBinary, "json", "tasks", "--list", root.listId]
+        maxBytes: 262144
+        deadlineMs: 30000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            if (code !== 0 || tooLarge) {
+                console.warn("oxidone: list load failed, exit", code);
+                return;
+            }
+            try {
+                root.listPayload = Today.parseList(out);
+            } catch (error) {
+                console.warn("oxidone: unreadable list:", error.message);
             }
         }
     }

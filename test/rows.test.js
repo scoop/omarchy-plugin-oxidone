@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   plain,
   buildRows,
+  buildListRows,
   signifierFor,
   dueLabel,
   selectableIndexes,
@@ -129,6 +130,25 @@ test("line and paragraph separators are replaced like any other break", () => {
   const ch = String.fromCharCode;
   expect(plain("a" + ch(0x2028) + "b")).toBe("a b");
   expect(plain("a" + ch(0x2029) + "b")).toBe("a b");
+});
+
+test("a list's rows keep the CLI's order and nest one level", () => {
+  const rows = buildListRows({
+    list: "L",
+    entries: [
+      entry({ id: "p1", due: null }),
+      entry({ id: "c1", parent: "p1", due: null }),
+      entry({ id: "p2", due: null }),
+    ],
+  });
+  expect(rows.map((r) => r.id)).toEqual(["p1", "c1", "p2"]);
+  expect(rows.map((r) => r.depth)).toEqual([0, 1, 0]);
+});
+
+test("a list row is never overdue, because a list is not a day", () => {
+  const rows = buildListRows({ list: "L", entries: [entry({ due: "2020-01-01" })] });
+  expect(rows[0].overdue).toBe(false);
+  expect(rows[0].dueLabel).toBe("01-01");
 });
 
 test("a title cut mid-emoji does not leave half a character behind", () => {

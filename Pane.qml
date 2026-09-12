@@ -26,6 +26,12 @@ Item {
 
     function open(payloadJson) {
         root.opened = true;
+        // Populated ahead of being looked at: by the time anyone opens the
+        // selector, Today is already showing, so there is no spinner state
+        // to design for.
+        if (root.service) {
+            root.service.loadLists();
+        }
         // The window and its content need a layout pass before focus will
         // land, which is why this is deferred rather than called outright.
         Qt.callLater(function () {
@@ -52,7 +58,37 @@ Item {
     // a states block.
     readonly property string serviceState: service ? service.state : "ok"
 
-    readonly property var rows: service && service.payload ? Rows.buildRows(service.payload) : []
+    // "" is Today; anything else is a List id.
+    property string scope: ""
+
+    readonly property var scopeOptions: {
+        // Today first: it is what the bar counts and what the pane opens
+        // on. The Lists follow in the CLI's own order.
+        var out = [{ value: "", label: "Today" }];
+        var lists = service && service.lists ? service.lists : [];
+        for (var i = 0; i < lists.length; i++) {
+            // A List title is a string from Google, reaching a Dropdown —
+            // a host component this plugin cannot pin to PlainText.
+            out.push({ value: String(lists[i].id), label: Rows.plain(lists[i].title, 60) });
+        }
+        return out;
+    }
+
+    onScopeChanged: {
+        // selectedIndex is derived from selectedId, so the cursor resets by
+        // clearing the id rather than the (read-only) derived index.
+        root.selectedId = "";
+        if (root.scope !== "" && service) {
+            service.loadList(root.scope);
+        }
+    }
+
+    readonly property var rows: {
+        if (root.scope === "") {
+            return service && service.payload ? Rows.buildRows(service.payload) : [];
+        }
+        return service && service.listPayload ? Rows.buildListRows(service.listPayload) : [];
+    }
 
     // An answer has arrived, as distinct from an answer being "ok". The Service
     // starts at ok deliberately, so state alone cannot tell the difference
@@ -197,6 +233,16 @@ Item {
                     textFormat: Text.PlainText
                 }
 
+                Dropdown {
+                    Layout.fillWidth: true
+                    options: root.scopeOptions
+                    value: root.scope
+                    // The signal is `changed(string value)`, not `selected`.
+                    onChanged: function (value) {
+                        root.scope = value;
+                    }
+                }
+
                 ColumnLayout {
                     Layout.fillWidth: true
                     visible: root.rows.length === 0 || root.needsAttention || root.serviceState === "stale"
@@ -317,6 +363,9 @@ Item {
 
                     Row {
                         anchors.left: parent.left
+                        // A Subtask nests one level under its parent; Today's
+                        // rows carry no depth at all, hence the fallback.
+                        anchors.leftMargin: (row.depth || 0) * Style.space(14)
                         anchors.right: dueText.left
                         anchors.rightMargin: Style.spacing.xs
                         anchors.verticalCenter: parent.verticalCenter
