@@ -83,6 +83,23 @@ Item {
         return out;
     }
 
+    // A scope naming a list that is no longer offered is clamped back to Today.
+    // `Dropdown.currentLabel()` renders the value verbatim when it is not among
+    // the options (Ui/Dropdown.qml:59), and the value is a raw Google id — the
+    // one string here that never goes through `Rows.plain`. It is also a scope
+    // no answer can ever arrive for. Today is the fail-closed place to land.
+    onScopeOptionsChanged: {
+        if (root.scope === "") {
+            return;
+        }
+        for (var i = 0; i < root.scopeOptions.length; i++) {
+            if (root.scopeOptions[i].value === root.scope) {
+                return;
+            }
+        }
+        root.scope = "";
+    }
+
     onScopeChanged: {
         scopeDropdown.value = root.scope;
         // selectedIndex is derived from selectedId, so the cursor resets by
