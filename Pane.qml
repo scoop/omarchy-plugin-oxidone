@@ -93,7 +93,14 @@ Item {
         next = Math.max(0, Math.min(root.selectable.length - 1, next));
         root.selectedId = root.rows[root.selectable[next]].id;
         list.positionViewAtIndex(root.selectable[next], ListView.Contain);
+        // The gate's own contract: reset after a keyboard or list mutation, so
+        // the rows sliding under a stationary pointer are not mistaken for the
+        // pointer moving. Without this the scroll this line just caused could
+        // hand the cursor straight back to whatever landed under the mouse.
+        pointerGate.reset();
     }
+
+    onRowsChanged: pointerGate.reset()
 
     PanelWindow {
         id: panel
