@@ -1,6 +1,7 @@
 // The version gate. `oxidone json` first shipped in 1.1.0; 1.0.0 prints a
-// version perfectly happily and has no such subcommand, so "it runs and prints"
-// is not evidence the contract is there.
+// version perfectly happily and has no such subcommand. The floor is 1.2.0 because
+// that is the release where `json today` began narrowing to today's completions.
+// On 1.1.0, `json today` answers the query but answers it wrongly for a Completed row.
 
 /** The floor: the release `json today` began narrowing to today's completions. */
 var MINIMUM = [1, 2, 0];

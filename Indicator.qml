@@ -99,7 +99,7 @@ BarWidget {
 
     function tooltipText() {
         if (state === State.UNUSABLE) {
-            return "oxidone not found — needs 1.1.0 or newer";
+            return "oxidone not found — needs 1.2.0 or newer";
         }
         if (state === State.AUTH_NEEDED) {
             return "oxidone is not authorized — click to open it";

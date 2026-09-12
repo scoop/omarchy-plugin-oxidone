@@ -120,7 +120,7 @@ Item {
             root.versionOk = code === 0 && !tooLarge && Version.satisfies(Version.parseVersion(out), Version.MINIMUM);
             if (!root.versionOk) {
                 root.state = State.UNUSABLE;
-                console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.1.0");
+                console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.2.0");
                 // Do not latch: the next retry re-runs the check, so replacing the
                 // binary in place at the same path is eventually picked up.
                 root.versionChecked = false;

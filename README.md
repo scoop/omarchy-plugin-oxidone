@@ -68,11 +68,15 @@ one is exactly what the plugin security rules forbid.
 | `binaryPath`      | `~/.local/bin/oxidone` | Absolute path to the oxidone binary. Leave empty to use the default. |
 | `pollIntervalSec` | `300`                  | How often to poll, in seconds. Range 60–3600.                        |
 
-## No keybinding yet
+## Keybinding
 
-There is nothing to toggle in this release: the widget is read-only, with no
-Pane to open, so it exposes no `open()` for `omarchy-shell shell toggle` to
-call. A keybinding arrives together with the Pane in a later release.
+The plugin cannot register one itself. To bind a key, add this to your own
+Hyprland config:
+
+    bind = SUPER, T, exec, omarchy-shell shell toggle scoop.oxidone '{}'
+
+The overlay it summons is still being built — in this state it opens and
+closes without drawing anything.
 
 ## What it touches
 
