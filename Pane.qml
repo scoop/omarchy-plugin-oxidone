@@ -264,9 +264,17 @@ Item {
                 anchors.margins: Style.spacing.panelPadding
                 spacing: Style.spacing.panelGap
 
+                // The pane's own name, not the scope.
+                //
+                // This said "Today" until it was seen with a List selected:
+                // the title, the selector under it and the first group header
+                // all read "Today" at once, and the moment the scope changed
+                // the title contradicted the selector directly below it. The
+                // selector already names the scope; this names the pane, which
+                // is what a keyboard-summoned overlay needs to say.
                 PanelSectionHeader {
                     Layout.fillWidth: true
-                    text: "Today"
+                    text: "oxidone"
                     textFormat: Text.PlainText
                 }
 
