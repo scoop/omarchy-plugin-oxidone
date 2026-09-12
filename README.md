@@ -16,13 +16,15 @@ its auth-needed or unusable state rather than a count.
 
 ## Requirements
 
-- **oxidone >= 1.1.0**, installed separately. Get it from
+- **oxidone >= 1.2.0**, installed separately. Get it from
   [erwins-enkel/oxidone](https://github.com/erwins-enkel/oxidone) and
   authorize it once (`oxidone`) before this plugin can show anything but the
-  auth-needed state.
+  auth-needed state. 1.2.0 is the floor because that release narrowed
+  `json today` to today's completions; on 1.1.0 the list would show entries
+  completed weeks ago.
 
 The plugin does not vendor or install oxidone itself. If the configured
-binary is missing or older than 1.1.0, the plugin shows its unusable state
+binary is missing or older than 1.2.0, the plugin shows its unusable state
 rather than guessing.
 
 ## This release is read-only
@@ -48,7 +50,7 @@ running oxidone yourself, outside the plugin.
 | Overdue        | The same glyph and count, colored to draw the eye — something outstanding is dated before today.                                                        |
 | Stale          | The last known count, muted, when a poll fails for a reason other than authorization (e.g. a network blip). The tooltip shows when it was last updated. |
 | Auth-needed    | A distinct unlink glyph, no count — oxidone has no usable Google grant.                                                                                 |
-| Unusable       | The same unlink glyph, no count — no working oxidone binary was found at the configured path, or it's older than 1.1.0.                                 |
+| Unusable       | The same unlink glyph, no count — no working oxidone binary was found at the configured path, or it's older than 1.2.0.                                 |
 | Nothing due    | Nothing. The widget is entirely absent from the bar.                                                                                                    |
 
 Clicking the widget opens or focuses a terminal running oxidone. It does this

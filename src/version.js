@@ -2,8 +2,8 @@
 // version perfectly happily and has no such subcommand, so "it runs and prints"
 // is not evidence the contract is there.
 
-/** The floor: the release the json entry point shipped in. */
-var MINIMUM = [1, 1, 0];
+/** The floor: the release `json today` began narrowing to today's completions. */
+var MINIMUM = [1, 2, 0];
 
 // `oxidone --version` prints exactly `oxidone X.Y.Z`. Anything else — another
 // tool on the configured path, a wrapper script, an error — is not a version.
