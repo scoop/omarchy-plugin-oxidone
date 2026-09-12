@@ -154,6 +154,27 @@ Item {
         pointerGate.reset();
     }
 
+    // h/l and left/right walk between scopes, the way the TUI's sidebar does.
+    // The Dropdown is the mouse's way in; this is the keyboard's. Without it a
+    // pane that is keyboard-first everywhere else has one control a keyboard
+    // cannot reach, because PanelKeyCatcher consumes Tab before it gets there.
+    function cycleScope(delta) {
+        var options = root.scopeOptions;
+        if (options.length < 2) {
+            return;
+        }
+        var at = 0;
+        for (var i = 0; i < options.length; i++) {
+            if (options[i].value === root.scope) {
+                at = i;
+                break;
+            }
+        }
+        // Clamped, not wrapped — the same rule the row cursor follows.
+        var next = Math.max(0, Math.min(options.length - 1, at + delta));
+        root.scope = options[next].value;
+    }
+
     onRowsChanged: pointerGate.reset()
 
     PanelWindow {
@@ -210,6 +231,8 @@ Item {
                 onMoveRequested: function (dx, dy) {
                     if (dy !== 0) {
                         root.moveCursor(dy);
+                    } else if (dx !== 0) {
+                        root.cycleScope(dx);
                     }
                 }
                 // Enter opens the place where things can actually be changed.
@@ -297,7 +320,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "j/k move · enter open oxidone · esc close"
+                    text: "j/k move · h/l scope · enter open oxidone · esc close"
                     color: Color.muted
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
