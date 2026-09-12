@@ -69,7 +69,10 @@ Item {
             return "oxidone has no usable Google authorization. Run it once to authorize; this plugin never asks for consent itself.";
         }
         if (root.serviceState === "stale") {
-            return "Showing the last answer — oxidone could not be reached.";
+            // The same trap as the branch below: a first poll that fails leaves
+            // the state stale with nothing behind it, and there is no last
+            // answer to be showing.
+            return root.hasAnswer ? "Showing the last answer — oxidone could not be reached." : "No answer from oxidone yet.";
         }
         return root.hasAnswer ? "Nothing due today." : "No answer from oxidone yet.";
     }
@@ -220,7 +223,13 @@ Item {
                     id: list
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !root.needsAttention
+                    // The list shows whenever there is one, whatever the state:
+                    // auth-needed and unusable describe a fetch that failed, not
+                    // data that became false, and hiding a real list loses
+                    // information the message block is already explaining. The
+                    // message says whether it can be trusted; the list says what
+                    // it was.
+                    visible: root.rows.length > 0
                     clip: true
                     model: root.rows
                     spacing: Style.spacing.rowGap
