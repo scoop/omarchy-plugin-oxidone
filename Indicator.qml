@@ -88,10 +88,9 @@ BarWidget {
     MouseArea {
         anchors.fill: parent
         enabled: root.showing
-        // Consent belongs in the TUI, and so does everything slice 1 cannot do.
-        // A fixed literal command with nothing interpolated into it: the path
-        // the person configured never reaches a shell string.
-        onClicked: if (bar) bar.run("omarchy-launch-or-focus-tui oxidone")
+        // Declaring the overlay kind moves this plugin off the bar-widget
+        // summon path, so this resolves to Pane.qml rather than the widget.
+        onClicked: if (bar && bar.shell) bar.shell.toggle("scoop.oxidone", "{}")
         onEntered: if (bar) bar.showTooltip(root, root.tooltipText())
         onExited: if (bar) bar.hideTooltip(root)
         hoverEnabled: true
@@ -99,7 +98,7 @@ BarWidget {
 
     function tooltipText() {
         if (state === State.UNUSABLE) {
-            return "oxidone not found — needs 1.1.0 or newer";
+            return "oxidone not found — needs 1.2.0 or newer";
         }
         if (state === State.AUTH_NEEDED) {
             return "oxidone is not authorized — click to open it";

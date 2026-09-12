@@ -36,7 +36,7 @@ status, completed_at, position}` where `type` is `task|event|note` and
 ## Decisions
 
 **Distribution.** Marketplace-published. Requires oxidone installed; the binary
-is addressed by absolute path from settings and gated on `>= 1.1.0`. The plugin
+is addressed by absolute path from settings and gated on `>= 1.2.0`. The plugin
 ships no executable of its own.
 
 **Indicator.** Nerd Font glyph plus a count, absent from the bar entirely at

@@ -33,6 +33,27 @@ Item {
     property int outstanding: 0
     property bool overdue: false
 
+    // The Snapshot the Pane renders. Held in memory only, like the counts.
+    property var payload: null
+
+    // The List scope: on-demand reads, never polled. `lists` is the
+    // selector's own options; `listPayload` is whichever List was last
+    // asked for, keyed loosely by `listId` rather than tracked per-id,
+    // since the Pane only ever looks at one List at a time.
+    property var lists: []
+    property var listPayload: null
+    property string listId: ""
+
+    // The list the running request was actually started for. `listId` is what is
+    // wanted; this is what was asked for. They differ exactly while a request is
+    // in flight and the scope has moved on.
+    property string listRequestedId: ""
+
+    // Consecutive answers that named a list nobody asked for. Bounded, because a
+    // binary that keeps answering for the wrong list would otherwise be retried
+    // forever.
+    property int listStaleDiscards: 0
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -89,6 +110,34 @@ Item {
         }
     }
 
+    // On-demand, not polled: the Pane calls these when it opens or when the
+    // person picks a List, not on the five-minute clock, so neither touches
+    // `scheduleNext` or the failure state the poll cycle owns.
+    function loadLists() {
+        if (versionOk && !listsProc.running) {
+            listsProc.start();
+        }
+    }
+
+    // A single place that starts a request, so `listId` (what is wanted) and
+    // `listRequestedId` (what was asked for) can never drift apart.
+    function startListLoad() {
+        root.listRequestedId = root.listId;
+        tasksProc.start();
+    }
+
+    function loadList(id) {
+        root.listId = id;
+        if (!versionOk) {
+            return;
+        }
+        // A request already in flight is left to finish; its handler starts the
+        // one that is wanted by then, so a scope change is deferred, never lost.
+        if (!tasksProc.running) {
+            root.startListLoad();
+        }
+    }
+
     function scheduleNext(code) {
         pollTimer.interval = State.nextDelaySeconds(code, root.pollIntervalSec, root.consecutiveFailures) * 1000;
         pollTimer.restart();
@@ -120,7 +169,7 @@ Item {
             root.versionOk = code === 0 && !tooLarge && Version.satisfies(Version.parseVersion(out), Version.MINIMUM);
             if (!root.versionOk) {
                 root.state = State.UNUSABLE;
-                console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.1.0");
+                console.warn("oxidone: no usable binary at", root.resolvedBinary, "— needs >= 1.2.0");
                 // Do not latch: the next retry re-runs the check, so replacing the
                 // binary in place at the same path is eventually picked up.
                 root.versionChecked = false;
@@ -160,6 +209,7 @@ Item {
                 var payload = Today.parseToday(out);
                 root.outstanding = Today.outstandingCount(payload);
                 root.overdue = Today.hasOverdue(payload);
+                root.payload = payload;
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
@@ -171,6 +221,75 @@ Item {
                 root.state = State.STALE;
                 console.warn("oxidone: unreadable answer:", error.message);
                 root.scheduleNext(2);
+            }
+        }
+    }
+
+    // The two List reads. Neither is polled and neither is guarded by
+    // `epoch`: they only ever run because the Pane asked for them just now,
+    // against whichever binary `versionOk` already vetted, and a failure
+    // here describes that one on-demand fetch rather than the widget's
+    // overall health — it must not perturb `state` or the poll clock.
+    BoundedProcess {
+        id: listsProc
+        command: [root.resolvedBinary, "json", "lists"]
+        maxBytes: 65536
+        deadlineMs: 15000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            if (code !== 0 || tooLarge) {
+                console.warn("oxidone: lists failed, exit", code);
+                return;
+            }
+            try {
+                var lists = Today.parseLists(out);
+                if (lists === null) {
+                    // Refused whole. The selector keeps what it last knew and
+                    // always keeps Today; a half-read list of lists would be a
+                    // guess, and the Pane dereferences these inside a binding.
+                    console.warn("oxidone: lists answer refused, keeping the selector as it was");
+                    return;
+                }
+                root.lists = lists;
+            } catch (error) {
+                console.warn("oxidone: unreadable lists:", error.message);
+            }
+        }
+    }
+
+    BoundedProcess {
+        id: tasksProc
+        command: [root.resolvedBinary, "json", "tasks", "--list", root.listId]
+        maxBytes: 262144
+        deadlineMs: 30000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            if (code !== 0 || tooLarge) {
+                console.warn("oxidone: list load failed, exit", code);
+                // Never retry the list that just failed — that would spin against
+                // a broken binary. But a newer scope queued behind this request
+                // was never sent, and dropping it strands the pane on the wrong
+                // list with nothing to say so.
+                if (root.listId !== root.listRequestedId) {
+                    root.startListLoad();
+                }
+                return;
+            }
+            try {
+                var payload = Today.parseList(out);
+                if (payload.list !== root.listId) {
+                    // The scope changed while this was in flight. Showing this
+                    // would put one list's entries under another list's name.
+                    root.listStaleDiscards += 1;
+                    if (root.listStaleDiscards > 3) {
+                        console.warn("oxidone: list answers keep naming a different list; giving up");
+                        return;
+                    }
+                    root.startListLoad();
+                    return;
+                }
+                root.listStaleDiscards = 0;
+                root.listPayload = payload;
+            } catch (error) {
+                console.warn("oxidone: unreadable list:", error.message);
             }
         }
     }

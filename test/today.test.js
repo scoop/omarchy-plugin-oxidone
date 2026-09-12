@@ -1,5 +1,13 @@
 import { test, expect } from "bun:test";
-import { parseToday, outstandingCount, hasOverdue, MAX_ENTRIES } from "../src/today.js";
+import {
+  parseToday,
+  parseList,
+  parseLists,
+  outstandingCount,
+  hasOverdue,
+  MAX_ENTRIES,
+  MAX_LISTS,
+} from "../src/today.js";
 
 const entry = (over) =>
   Object.assign(
@@ -43,6 +51,80 @@ test("an answer with more entries than the cap is refused whole, not truncated",
 test("an entry that is not an object is refused rather than counted", () => {
   for (const bad of [null, 42, "x", []]) {
     expect(() => parseToday(JSON.stringify({ today: "2026-07-20", entries: [bad] }))).toThrow();
+  }
+});
+
+test("a well-formed lists answer parses to its lists", () => {
+  const parsed = parseLists(JSON.stringify({ lists: [{ id: "L1", title: "Errands" }] }));
+  expect(parsed.length).toBe(1);
+  expect(parsed[0].id).toBe("L1");
+  expect(parsed[0].title).toBe("Errands");
+});
+
+test("a lists answer that is not an object is refused whole rather than guessed at", () => {
+  expect(parseLists("[]")).toBe(null);
+  expect(parseLists("null")).toBe(null);
+  expect(parseLists("{}")).toBe(null);
+  expect(parseLists('{"lists": {}}')).toBe(null);
+  expect(parseLists('{"lists": "Work"}')).toBe(null);
+});
+
+test("a lists answer with more lists than the cap is refused whole, not truncated", () => {
+  const one = { id: "L1", title: "Errands" };
+  const many = { lists: new Array(MAX_LISTS + 1).fill(one) };
+  expect(parseLists(JSON.stringify(many))).toBe(null);
+  const atCap = { lists: new Array(MAX_LISTS).fill(one) };
+  expect(parseLists(JSON.stringify(atCap)).length).toBe(MAX_LISTS);
+});
+
+test("a list entry the selector could not name or fetch is dropped, not carried", () => {
+  // `{"lists":[null]}` used to reach the Pane's scopeOptions binding and take
+  // it down with a TypeError, losing even the Today option.
+  expect(parseLists('{"lists": [null]}')).toEqual([]);
+  for (const bad of [
+    null,
+    42,
+    "Work",
+    [],
+    {},
+    { id: "L1" },
+    { title: "Errands" },
+    { id: "", title: "Errands" },
+    { id: 7, title: "Errands" },
+    { id: "L1", title: 7 },
+  ]) {
+    expect(parseLists(JSON.stringify({ lists: [bad] }))).toEqual([]);
+  }
+});
+
+test("a sound list survives beside a dropped one", () => {
+  const parsed = parseLists(JSON.stringify({ lists: [null, { id: "L2", title: "Work" }] }));
+  expect(parsed.length).toBe(1);
+  expect(parsed[0].id).toBe("L2");
+});
+
+test("a well-formed tasks answer parses to its list id and entries", () => {
+  const parsed = parseList(JSON.stringify({ list: "L1", entries: [entry({})] }));
+  expect(parsed.list).toBe("L1");
+  expect(parsed.entries.length).toBe(1);
+});
+
+test("a tasks answer that is not an object is refused rather than guessed at", () => {
+  expect(() => parseList("[]")).toThrow();
+  expect(() => parseList('{"entries": []}')).toThrow();
+  expect(() => parseList('{"list": "L1"}')).toThrow();
+});
+
+test("a tasks answer with more entries than the cap is refused whole, not truncated", () => {
+  const many = { list: "L1", entries: new Array(MAX_ENTRIES + 1).fill(entry({})) };
+  expect(() => parseList(JSON.stringify(many))).toThrow();
+  const atCap = { list: "L1", entries: new Array(MAX_ENTRIES).fill(entry({})) };
+  expect(parseList(JSON.stringify(atCap)).entries.length).toBe(MAX_ENTRIES);
+});
+
+test("a tasks entry that is not an object is refused rather than counted", () => {
+  for (const bad of [null, 42, "x", []]) {
+    expect(() => parseList(JSON.stringify({ list: "L1", entries: [bad] }))).toThrow();
   }
 });
 
