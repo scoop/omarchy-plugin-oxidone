@@ -115,10 +115,10 @@ Item {
         if (root.serviceState === "auth-needed") {
             return "oxidone has no usable Google authorization. Run it once to authorize; this plugin never asks for consent itself.";
         }
-        if (root.serviceState === "stale") {
-            // The same trap as the branch below: a first poll that fails leaves
-            // the state stale with nothing behind it, and there is no last
-            // answer to be showing.
+        // `stale` is set only by the Today poll — tasksProc never touches state
+        // — so it says nothing about a List that loaded a moment ago. Scoped to
+        // Today, a List falls through to its own hasScopeAnswer logic below.
+        if (root.serviceState === "stale" && root.scope === "") {
             return root.hasAnswer ? "Showing the last answer — oxidone could not be reached." : "No answer from oxidone yet.";
         }
         if (!root.hasScopeAnswer) {
@@ -287,7 +287,7 @@ Item {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    visible: root.rows.length === 0 || root.needsAttention || root.serviceState === "stale"
+                    visible: root.rows.length === 0 || root.needsAttention || (root.scope === "" && root.serviceState === "stale")
                     spacing: Style.spacing.xs
 
                     Text {
