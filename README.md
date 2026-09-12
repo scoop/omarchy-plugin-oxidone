@@ -29,9 +29,11 @@ rather than guessing.
 
 ## This release is read-only
 
-This first release only reads: it polls `oxidone json today` on an interval
-and reflects the answer in the bar. It does not create, edit, complete, or
-otherwise write anything. Writing is planned for a later release.
+This first release only reads: it polls `oxidone json today` on an interval,
+and the bar and the pane both only ever show what oxidone returns. Opening a
+List in the pane reads that list's entries the same way. Nothing here
+creates, edits, completes, or otherwise writes anything. Writing is planned
+for a later release.
 
 ## Credentials and authorization
 
@@ -53,13 +55,30 @@ running oxidone yourself, outside the plugin.
 | Unusable       | The same unlink glyph, no count — no working oxidone binary was found at the configured path, or it's older than 1.2.0.                                 |
 | Nothing due    | Nothing. The widget is entirely absent from the bar.                                                                                                    |
 
-Clicking the widget opens or focuses a terminal running oxidone. It does this
-by running `omarchy-launch-or-focus-tui oxidone`, which resolves `oxidone`
-from your `PATH` — it does not use the `binaryPath` setting below. If
-`binaryPath` points somewhere outside your `PATH`, the click opens whichever
-`oxidone` your shell finds there, or none. This is deliberate: the host's only
-launch API takes a shell string, and interpolating a user-supplied path into
-one is exactly what the plugin security rules forbid.
+Clicking the widget opens the pane described below, rather than launching a
+terminal directly. From inside the pane, Enter or the "Open oxidone" button
+launches `omarchy-launch-or-focus-tui` (by absolute path) and closes the
+pane.
+
+## The pane
+
+The pane is a keyboard-first overlay listing what oxidone reports, grouped
+Overdue then Today; each group header carries the count of what is still
+outstanding in that group. A completed entry is shown struck through and
+muted, and is never counted. A scope selector switches between Today and any
+single List, showing that list's entries in the CLI's own Manual order with
+subtasks indented one level under their parent.
+
+For the states a list cannot represent — auth-needed, unusable, or a stale
+Today poll — the pane shows a message instead, with a button to open oxidone
+where that's the only way forward.
+
+| Key              | Action                          |
+| ---------------- | ------------------------------- |
+| `j` / `k`, ↓ / ↑ | Move the cursor between entries |
+| `h` / `l`, ← / → | Switch scope (Today, or a List) |
+| Enter            | Open oxidone and close the pane |
+| Esc              | Close the pane                  |
 
 ## Settings
 
@@ -75,8 +94,8 @@ Hyprland config:
 
     bind = SUPER, T, exec, omarchy-shell shell toggle scoop.oxidone '{}'
 
-The overlay it summons is still being built — in this state it opens and
-closes without drawing anything.
+That toggles the same pane the widget's click opens — see "The pane" above
+for what it shows and its keys.
 
 ## What it touches
 
@@ -85,9 +104,14 @@ keyring entry, no systemd unit, no hook, and no edit to any shared
 configuration. The last known count is held in memory for as long as the
 shell runs and is gone when it stops.
 
-It makes no network connections of its own. The only thing it runs is the
-configured `oxidone` binary, as `oxidone json today`, with a fixed minimal
-environment; oxidone is what talks to Google, using its own credentials.
+It makes no network connections of its own. Everything it runs is the
+configured `oxidone` binary — as `oxidone json today` on its poll, and as
+`oxidone json lists` / `oxidone json tasks --list <id>` when the pane's scope
+selector is used — with a fixed minimal environment; oxidone is what talks to
+Google, using its own credentials. Opening the TUI from the pane runs
+`omarchy-launch-or-focus-tui` the same way: an absolute-path process, its
+argument passed as its own array element. Nothing in this plugin runs through
+a shell.
 
 ## Removing
 
