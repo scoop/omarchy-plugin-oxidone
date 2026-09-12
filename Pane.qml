@@ -37,6 +37,16 @@ Item {
         root.opened = false;
     }
 
+    // An argv array through execDetached — no shell at all. The panel-injected
+    // `shell` facade has no `run()` (that is the bar's API, and it wraps
+    // everything in `bash -lc`), which turns out for the better: this names the
+    // launcher by absolute path and passes its argument as its own element, so
+    // nothing is ever parsed as a command.
+    function openTui() {
+        Quickshell.execDetached(["/usr/bin/omarchy-launch-or-focus-tui", "oxidone"]);
+        root.close();
+    }
+
     // Not `state`: QQuickItem already has one, for its States/Transitions
     // machinery, and shadowing it would misbehave the moment anything here grew
     // a states block.
@@ -51,6 +61,39 @@ Item {
 
     // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
     readonly property string fontFamily: Style.font.menuFamily
+
+    // Which row the keyboard is on, held as the entry's id rather than its
+    // position. `rows` is rebuilt wholesale on every poll, so an index survives
+    // the rebuild while pointing at a different task — the cursor would appear
+    // to jump on its own. An id either still exists or does not.
+    property string selectedId: ""
+
+    readonly property int selectedIndex: {
+        if (root.selectedId === "") {
+            return -1;
+        }
+        for (var i = 0; i < root.rows.length; i++) {
+            if (root.rows[i].kind === "entry" && root.rows[i].id === root.selectedId) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    readonly property var selectable: Rows.selectableIndexes(root.rows)
+
+    function moveCursor(delta) {
+        if (root.selectable.length === 0) {
+            return;
+        }
+        var at = root.selectable.indexOf(root.selectedIndex);
+        // From nowhere, a step down lands on the first row and a step up on
+        // the last, so either key opens the list rather than doing nothing.
+        var next = at < 0 ? (delta > 0 ? 0 : root.selectable.length - 1) : at + delta;
+        next = Math.max(0, Math.min(root.selectable.length - 1, next));
+        root.selectedId = root.rows[root.selectable[next]].id;
+        list.positionViewAtIndex(root.selectable[next], ListView.Contain);
+    }
 
     PanelWindow {
         id: panel
@@ -103,6 +146,19 @@ Item {
                 id: keys
                 anchors.fill: parent
                 onCloseRequested: root.close()
+                onMoveRequested: function (dx, dy) {
+                    if (dy !== 0) {
+                        root.moveCursor(dy);
+                    }
+                }
+                // Enter opens the place where things can actually be changed.
+                // This release reads; the TUI is where the day gets worked.
+                onReturnRequested: root.openTui()
+            }
+
+            PointerMoveGate {
+                id: pointerGate
+                referenceItem: card
             }
 
             ColumnLayout {
@@ -151,7 +207,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "esc close"
+                    text: "j/k move · enter open oxidone · esc close"
                     color: Color.muted
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -194,13 +250,26 @@ Item {
             Component {
                 id: entryDelegate
 
-                Item {
-                    // A fixed height, not one that grows with its content: a
-                    // title can carry a long run of combining marks, and a row
-                    // sized to fit them would bleed over its neighbours. The
-                    // cap in rows.js bounds the code units, not the ink.
-                    height: Style.space(22)
-                    clip: true
+                CursorSurface {
+                    height: Math.max(Style.space(22), titleText.implicitHeight)
+                    hasCursor: rowIndex === root.selectedIndex
+                    current: rowIndex === root.selectedIndex
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        // A list that moves under a still pointer would
+                        // otherwise hand the cursor to whatever slid beneath it.
+                        onPositionChanged: function (mouse) {
+                            if (pointerGate.moved(this, mouse)) {
+                                root.selectedId = row.id;
+                            }
+                        }
+                        onClicked: {
+                            root.selectedId = row.id;
+                            root.openTui();
+                        }
+                    }
 
                     Row {
                         anchors.left: parent.left
