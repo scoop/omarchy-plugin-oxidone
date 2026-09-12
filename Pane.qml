@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
+import "src/rows.js" as Rows
 
 // The overlay: a full-screen scrim with a card in the middle, summoned by the
 // Indicator's click or by `omarchy-shell shell toggle scoop.oxidone`.
@@ -40,6 +41,8 @@ Item {
     // machinery, and shadowing it would misbehave the moment anything here grew
     // a states block.
     readonly property string serviceState: service ? service.state : "ok"
+
+    readonly property var rows: service && service.payload ? Rows.buildRows(service.payload) : []
 
     // Summoned surfaces honour OMARCHY_MENU_FONT; the bar font is for the bar.
     readonly property string fontFamily: Style.font.menuFamily
@@ -108,10 +111,33 @@ Item {
                     textFormat: Text.PlainText
                 }
 
-                Item {
-                    id: content
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.rows.length === 0
+                    text: root.serviceState === "ok" ? "Nothing due today." : "No answer from oxidone yet."
+                    color: Color.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    textFormat: Text.PlainText
+                }
+
+                ListView {
+                    id: list
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    clip: true
+                    model: root.rows
+                    spacing: Style.spacing.rowGap
+                    // The list owns its scroll position across model updates;
+                    // a Flickable would lose it on every poll.
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: Loader {
+                        width: ListView.view.width
+                        sourceComponent: modelData.kind === "header" ? headerDelegate : entryDelegate
+                        property var row: modelData
+                        property int rowIndex: index
+                    }
                 }
 
                 PanelSeparator {
@@ -125,6 +151,95 @@ Item {
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     textFormat: Text.PlainText
+                }
+            }
+
+            Component {
+                id: headerDelegate
+
+                Row {
+                    spacing: Style.spacing.xs
+
+                    PanelSectionHeader {
+                        text: row.label
+                        textFormat: Text.PlainText
+                    }
+
+                    // The count drops away at zero outstanding, along with its
+                    // colour: a group with nothing left to move is just a
+                    // heading over what already happened.
+                    PanelSectionHeader {
+                        visible: row.count > 0
+                        text: String(row.count)
+                        foreground: row.urgent ? Color.urgent : Color.muted
+                        textFormat: Text.PlainText
+                    }
+                }
+            }
+
+            Component {
+                id: entryDelegate
+
+                Item {
+                    // A fixed height, not one that grows with its content: a
+                    // title can carry a long run of combining marks, and a row
+                    // sized to fit them would bleed over its neighbours. The
+                    // cap in rows.js bounds the code units, not the ink.
+                    height: Style.space(22)
+                    clip: true
+
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: dueText.left
+                        anchors.rightMargin: Style.spacing.xs
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.spacing.xs
+
+                        // The Entry type's signifier, in the gutter the TUI
+                        // gives it. Blank for a Task, which is most of them.
+                        Text {
+                            width: Style.space(10)
+                            text: row.signifier
+                            color: Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.body
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            id: titleText
+                            width: parent.width - Style.space(10) - Style.spacing.xs * 2 - notesText.width
+                            text: row.title
+                            color: row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.body
+                            font.strikeout: row.completed
+                            elide: Text.ElideRight
+                            textFormat: Text.PlainText
+                        }
+
+                        // Says the entry carries a notes body; the body itself
+                        // is not in this contract and is not drawn.
+                        Text {
+                            id: notesText
+                            text: row.hasNotes ? "≡" : ""
+                            color: Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.body
+                            textFormat: Text.PlainText
+                        }
+                    }
+
+                    Text {
+                        id: dueText
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: row.dueLabel
+                        color: row.overdue ? Color.urgent : Color.muted
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        textFormat: Text.PlainText
+                    }
                 }
             }
         }

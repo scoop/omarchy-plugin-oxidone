@@ -33,6 +33,9 @@ Item {
     property int outstanding: 0
     property bool overdue: false
 
+    // The Snapshot the Pane renders. Held in memory only, like the counts.
+    property var payload: null
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -160,6 +163,7 @@ Item {
                 var payload = Today.parseToday(out);
                 root.outstanding = Today.outstandingCount(payload);
                 root.overdue = Today.hasOverdue(payload);
+                root.payload = payload;
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
