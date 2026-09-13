@@ -58,6 +58,18 @@ enforces it.
 `qs.Commons.Style`, composed from `qs.Ui`. No literal hex, radius or font size
 anywhere in the tree.
 
+**Colour in a row**, settled after slice 4 by
+[#6](https://github.com/scoop/omarchy-plugin-oxidone/issues/6). `urgent` on an
+entry's title answers one question — is this entry late. A failed **Apply** and
+an **Armed** delete leave the title alone and keep `urgent` on their own strings,
+the failure message and the armed prompt, which name in words what happened: a
+row that was both late and failed used to come out entirely `urgent`, with
+nothing telling the two apart. Distinguishing by border instead — the shell's own
+`polkit.border-error` idiom — was declined, because the row is a `CursorSurface`
+and that component owns `borderSpec` to guarantee a single highlight on screen,
+so a failure border would be an overlay competing with the cursor's own on the
+row being looked at. The decision itself lives in `Rows.titleRole`, as a table.
+
 **States.** Exit 3 (`auth_expired`, `not_configured`, `token_store_failed`) is
 **Auth-needed**: a distinct quiet indicator. (Its click launched the TUI
 directly in slice 1; see "The click changes meaning" in Slice 2 decisions —

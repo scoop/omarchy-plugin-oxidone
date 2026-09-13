@@ -166,6 +166,31 @@ function buildListRows(payload) {
   return rows;
 }
 
+// Which colour role a row's title wears, as a name the Pane maps to a token —
+// `src/` holds no QML types, and `Color.menu.text` does not exist out here.
+//
+// Urgent on a title answers one question: is this entry late. A failed Apply
+// and an Armed delete used to colour it too, so a row that was both late and
+// failed came out entirely urgent with nothing telling the two apart. Neither
+// is a parameter here, and that absence is the rule: both keep urgent on their
+// own strings — the failure message and the armed prompt — which say in words
+// what happened, where a second red title could only repeat itself.
+//
+// Pending outranks the rest for the reason Stale wears the same muted: we do
+// not know yet.
+function titleRole(row, pending) {
+  if (pending) {
+    return "muted";
+  }
+  if (row.completed) {
+    return "muted";
+  }
+  if (row.overdue) {
+    return "urgent";
+  }
+  return "text";
+}
+
 // Headers are drawn but never landed on, so the keyboard cursor needs the
 // indexes it may occupy rather than a range.
 function selectableIndexes(rows) {
@@ -187,5 +212,6 @@ if (typeof module !== "undefined") {
     buildRows: buildRows,
     buildListRows: buildListRows,
     selectableIndexes: selectableIndexes,
+    titleRole: titleRole,
   };
 }
