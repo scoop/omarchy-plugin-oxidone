@@ -27,6 +27,15 @@ Process {
     /** How long the child may run before it is taken down. */
     property int deadlineMs: 30000
 
+    /**
+     * Written to the child's stdin on start, after which the pipe is closed.
+     *
+     * `oxidone json apply` takes its command here rather than in argv, because
+     * /proc/<pid>/cmdline is readable by every process running as this user.
+     * Empty means the child gets no stdin at all.
+     */
+    property string stdinPayload: ""
+
     /** Emitted once per run, after the child has exited. */
     signal finishedWith(string stdoutText, string stderrText, int code, bool tooLarge)
 
@@ -68,6 +77,9 @@ Process {
         _started = false;
         _finished = false;
         _wanted = true;
+        // Before running, not after: the pipe is created as the process starts,
+        // so enabling it from onStarted would be too late.
+        stdinEnabled = root.stdinPayload !== "";
         deadlineTimer.restart();
         running = true;
     }
@@ -89,6 +101,13 @@ Process {
         _out = "";
         _err = "";
         _overflowed = false;
+        if (root.stdinPayload !== "") {
+            write(root.stdinPayload);
+            // Process has no close(); clearing this is what closes the pipe, and
+            // the child needs that EOF to stop reading and act. Verified against
+            // Quickshell 0.3.1 — without it the child waits out the deadline.
+            stdinEnabled = false;
+        }
     }
 
     // Quickshell reports a failed exec by returning to not-running without ever
