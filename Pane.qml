@@ -381,12 +381,14 @@ Item {
                     root.toggleComplete();
                 }
                 onTextKey: function (text) {
+                    // Any key is a change of mind, `m` included: a migrate that
+                    // does not fold leaves `rows` untouched, so nothing else
+                    // would disarm, and the armed prompt would go on hiding the
+                    // migrate's own failure message until an `x` deleted the row.
+                    root.armedId = "";
                     if (text === "m") {
                         root.applySelected("migrate");
-                        return;
                     }
-                    // Anything else is a change of mind.
-                    root.armedId = "";
                 }
 
                 ColumnLayout {
