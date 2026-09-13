@@ -2,22 +2,30 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { runHarness, quickshell } from "./qml-harness.js";
 
-// Every terminal branch of `applyProc.onFinishedWith` must still drain the
-// queue (Service.qml:840 onward): success, the unreadable-answer refusal,
-// exit 3, exit 6, and the delete id-mismatch refusal each return through
-// `root.drainApply()`. A branch that stops before that call leaves whatever
-// is queued behind it stuck: no error, no completion, Pending forever — the
-// exact failure a stranded queue looks like from the Pane.
+// Every distinct terminal branch of `applyProc.onFinishedWith` must still
+// drain the queue (Service.qml:840 onward): success, the unreadable-answer
+// refusal, the shared exit-!==-0 branch (exit 3 here — exit 6 shares this
+// same call site and would not be an independent proof; see below), the
+// delete id-mismatch refusal, delete success, the unreadable-delete refusal,
+// and a plain (non-`dueToday`) capture's create success each return through
+// their own `root.drainApply()`. A branch that stops before that call leaves
+// whatever is queued behind it stuck: no error, no completion, Pending
+// forever — the exact failure a stranded queue looks like from the Pane.
 //
-// One harness (`apply-terminal-drains.qml`) and one fake, reused across five
+// Review (Critical 2) caught that exit 3 and exit 6 both reach
+// Service.qml:889 through the shared `code !== 0 || tooLarge` branch, so
+// testing both proved the same call site twice while three other call sites
+// (delete success, the unreadable-delete answer, and a plain create success)
+// had no coverage anywhere. Exit 3 stays as this branch's one representative
+// scenario; the other slot goes to a genuinely distinct site instead.
+//
+// One harness (`apply-terminal-drains.qml`) and one fake, reused across
 // scenarios: the first Apply's `list` field tells the fake which branch to
 // drive it into, a second ordinary Apply is queued right behind it, and the
 // proof is that the second's fake actually runs — the queue kept moving.
-// The epoch-drift discard branch is proven separately, as part of
-// `apply-epoch-binary-swap.test.js`, which already has to hold an Apply
-// mid-flight while `epoch` moves out from under it; adding a queued
-// follow-up there and re-deriving the same "still drains" proof here would
-// be the sixth near-identical harness the brief warns against.
+// `Service.qml:845` (`sent === null`), `:861` (the epoch-drift discard) and
+// `:945` (a chained capture's `set_due` success) are each covered
+// separately — see the header of `apply-terminal-drains.qml` for why.
 //
 // Offscreen, so it needs no Wayland session and can run anywhere `qs` can.
 
@@ -59,12 +67,20 @@ case "\${1:-}" in
             printf '{"error":{"kind":"auth_expired","message":"fake: no grant"}}\\n' >&2
             exit 3
             ;;
-          scn-exit6)
-            printf '{"error":{"kind":"not_found","message":"fake: gone"}}\\n' >&2
-            exit 6
-            ;;
           scn-delete-mismatch)
             printf '{"deleted":{"id":"wrong-id","list":"wrong-list"}}\\n'
+            exit 0
+            ;;
+          scn-delete-success)
+            printf '{"deleted":{"id":"task-first","list":"scn-delete-success"}}\\n'
+            exit 0
+            ;;
+          scn-delete-unreadable)
+            printf '{}\\n'
+            exit 0
+            ;;
+          scn-create-success)
+            printf '{"entry":{"id":"entry-created","list":"scn-create-success","parent":null,"title":"A captured task","display_title":"A captured task","type":"task","has_notes":false,"due":null,"status":"needsAction","completed_at":null,"position":"01"}}\\n'
             exit 0
             ;;
           L1)
@@ -134,22 +150,40 @@ const scenarios = [
     },
   },
   {
-    name: "exit 6",
-    op: "complete",
-    list: "scn-exit6",
-    check: (report) => {
-      // A row op's exit 6 removes the row instead of leaving a message on
-      // it — there is no row left to carry one.
-      expect(report.firstError).toBe("");
-      expect(report.firstPending).toBe(false);
-    },
-  },
-  {
     name: "the delete id-mismatch refusal",
     op: "delete",
     list: "scn-delete-mismatch",
     check: (report) => {
       expect(report.firstError).toBe("the change did not go through");
+    },
+  },
+  {
+    name: "delete success",
+    op: "delete",
+    list: "scn-delete-success",
+    check: (report) => {
+      // The row is gone rather than erred — there is nothing left to carry
+      // a message on.
+      expect(report.firstError).toBe("");
+      expect(report.firstPending).toBe(false);
+    },
+  },
+  {
+    name: "the unreadable-delete refusal",
+    op: "delete",
+    list: "scn-delete-unreadable",
+    check: (report) => {
+      expect(report.firstError).toBe("the change did not go through");
+    },
+  },
+  {
+    name: "a plain create success",
+    op: "capture",
+    list: "scn-create-success",
+    check: (report) => {
+      // The capture settled (its record removed) rather than left Pending
+      // or carrying a failure message.
+      expect(report.firstCaptureSettled).toBe(true);
     },
   },
 ];
