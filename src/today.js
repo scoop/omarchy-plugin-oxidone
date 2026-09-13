@@ -67,6 +67,35 @@ function parseList(stdout) {
 // account carries.
 var MAX_LISTS = 200;
 
+// One { id, title } pair the selector can name and fetch. Anything else is
+// dropped: a list it cannot name is not one it could put on screen.
+function usableList(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof value.id === "string" &&
+    value.id !== "" &&
+    typeof value.title === "string"
+  );
+}
+
+// `default_list` is the concrete id `@default` resolves to, and it is what a
+// capture in Today scope targets — Today being no List, a capture there needs
+// one. Kept only when it names a List we also kept: the Pane says where a
+// capture is going, and it cannot name a List it has no title for.
+function resolveDefaultList(wanted, lists) {
+  if (typeof wanted !== "string") {
+    return "";
+  }
+  for (var i = 0; i < lists.length; i++) {
+    if (lists[i].id === wanted) {
+      return wanted;
+    }
+  }
+  return "";
+}
+
 // Refused whole — `null`, never a partial — when the envelope is wrong, so a
 // truncated or foreign answer cannot pass for a shorter list of lists. Inside a
 // sound envelope an entry that is not an { id, title } pair is dropped: it is
@@ -76,24 +105,36 @@ function parseLists(stdout) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
-  if (!Array.isArray(payload.lists)) {
-    return null;
-  }
-  if (payload.lists.length > MAX_LISTS) {
+  if (!Array.isArray(payload.lists) || payload.lists.length > MAX_LISTS) {
     return null;
   }
   var out = [];
   for (var i = 0; i < payload.lists.length; i++) {
-    var list = payload.lists[i];
-    if (!list || typeof list !== "object" || Array.isArray(list)) {
-      continue;
+    if (usableList(payload.lists[i])) {
+      out.push(payload.lists[i]);
     }
-    if (typeof list.id !== "string" || list.id === "" || typeof list.title !== "string") {
-      continue;
-    }
-    out.push(list);
   }
-  return out;
+  return { lists: out, default_list: resolveDefaultList(payload.default_list, out) };
+}
+
+// `oxidone json due <expr>` resolves a date phrase — the same vocabulary the
+// TUI's `d` accepts — without credentials or a network. The ISO shape is
+// checked here rather than trusted, because it is the one thing `apply set_due`
+// will not tolerate being wrong: a refusal we can report beats a write that
+// fails at Google.
+var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDue(stdout) {
+  var payload;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    return null;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  return typeof payload.due === "string" && ISO_DATE.test(payload.due) ? payload.due : null;
 }
 
 // The bar's number: outstanding work. An Event occupies the day as a Task does,
@@ -125,6 +166,7 @@ if (typeof module !== "undefined") {
     parseToday: parseToday,
     parseList: parseList,
     parseLists: parseLists,
+    parseDue: parseDue,
     outstandingCount: outstandingCount,
     hasOverdue: hasOverdue,
   };

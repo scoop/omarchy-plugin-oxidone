@@ -55,6 +55,14 @@ _Avoid_: loading, busy, in-flight, dirty.
 A row that has been asked to delete and waits for the confirming second press. Moving the cursor or any change to the **Snapshot** disarms it.
 _Avoid_: confirming, pending, selected.
 
+**Editor**:
+The single text field the **Pane** opens under its scope selector, serving one text op at a time — a **Capture**, a rename, or a due date. It owns the keyboard while it is open (`PanelKeyCatcher.blocked`), and Esc closes it without sending anything.
+_Avoid_: input, prompt, form, modal, dialog.
+
+**Capture**:
+Making a new **Entry** from a title alone. Lands in the **List** the **Scope** names, or in oxidone's `default_list` when the Scope is **Today** — where it is also dated today, so it stays on the page it was typed on. That second half is a second **Apply**, since `create` carries no due date.
+_Avoid_: add, new task, quick add, inbox.
+
 **Auth-needed**:
 The state in which oxidone reports no usable grant. The plugin never asks for consent itself — it says so and hands off to the TUI, where consent belongs.
 _Avoid_: logged out, unauthenticated, expired.

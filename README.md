@@ -29,14 +29,17 @@ rather than guessing.
 
 ## What it can change
 
-This release reads on a poll and can change four things about an entry, each
-from a single key in the pane:
+This release reads on a poll and can change what follows, each from a single
+key in the pane:
 
 | Key     | What it does                                                                                                               |
 | ------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `Space` | Completes the entry, or reopens it if it is already complete.                                                              |
 | `m`     | Migrates it — moves its due date to the later of tomorrow or the day after its own due date. Never an exit; it stays open. |
 | `x`     | Deletes it. Press `x` once to arm the row, `x` again to confirm.                                                           |
+| `a`     | Captures a new entry from a title. See "Capturing" below.                                                                  |
+| `e`     | Renames it. The field opens with the current title; the entry keeps its type.                                              |
+| `d`     | Sets its due date, or clears the date if you empty the field and press Enter.                                              |
 
 Every change is one `oxidone json apply`, with the command on the process's
 standard input rather than its arguments. The pane shows only what oxidone
@@ -48,10 +51,29 @@ locally first, so what you see is never a guess about what Google did.
 
 Deleting has no undo here. Google keeps a deleted task recoverable in its own
 web client, which is why the confirm prompt says so — this plugin cannot bring
-one back.
+one back. Nothing else is gated: a rename or a date can simply be typed again.
 
-Creating entries, renaming them, and setting or clearing a due date all need a
-text field, and are planned for the next release.
+### Capturing
+
+`a` opens a field under the scope selector, and the field says where the entry
+will land. In a list, that is the list on screen, and the entry is created
+undated. In Today — which is no list — it goes to the list oxidone resolves as
+your default, and is dated today, so it stays on the page you typed it on.
+Dating it is a second request, which is why a capture there can report that the
+entry was created but could not be dated; when it says that, the entry is real
+and undated in the list it names.
+
+The field stays open after each entry, so a run of them is type, Enter, type,
+Enter. Escape closes it. The title is written exactly as typed — a leading `○`
+or `—` makes an Event or a Note, the same thing that happens in Google's own
+web client.
+
+### Due dates
+
+`d` accepts what oxidone's own due editor accepts — `tomorrow`, `mon`, `+3d`, a
+bare `25` for the next 25th, or an ISO date. The phrase is resolved by oxidone
+before anything is written, so what gets saved is a date it agreed to; a phrase
+that is not a date says so on the row and changes nothing.
 
 ## Credentials and authorization
 
@@ -91,19 +113,23 @@ For the states a list cannot represent — auth-needed, unusable, or a stale
 Today poll — the pane shows a message instead, with a button to open oxidone
 where that's the only way forward.
 
-| Key              | Action                                    |
-| ---------------- | ----------------------------------------- |
-| `j` / `k`, ↓ / ↑ | Move the cursor between entries           |
-| `h` / `l`, ← / → | Switch scope (Today, or a List)           |
-| `Space`          | Complete the entry, or reopen it          |
-| `m`              | Migrate it to the next day                |
-| `x`              | Delete it — once to arm, again to confirm |
-| Enter            | Open oxidone and close the pane           |
-| Esc              | Cancel an armed delete, or close the pane |
+| Key              | Action                                                      |
+| ---------------- | ----------------------------------------------------------- |
+| `j` / `k`, ↓ / ↑ | Move the cursor between entries                             |
+| `h` / `l`, ← / → | Switch scope (Today, or a List)                             |
+| `Space`          | Complete the entry, or reopen it                            |
+| `m`              | Migrate it to the next day                                  |
+| `x`              | Delete it — once to arm, again to confirm                   |
+| `a`              | Capture a new entry                                         |
+| `e`              | Rename the entry                                            |
+| `d`              | Set its due date — empty the field to clear it              |
+| Enter            | Open oxidone and close the pane                             |
+| Esc              | Close the editor, cancel an armed delete, or close the pane |
 
-The row under the cursor, or under the pointer, also reveals buttons for those
-same complete, migrate and delete actions; the delete button arms the row, and
-the confirming second press is still `x`.
+The row under the cursor, or under the pointer, also reveals buttons for the
+same complete, rename, due, migrate and delete actions; the delete button arms
+the row, and the confirming second press is still `x`. Capture has no row to
+hover, so its button sits beside the scope selector.
 
 ## Settings
 
@@ -136,7 +162,11 @@ selector is used, and as `oxidone json apply` when you change something — with
 a fixed minimal environment; oxidone is what talks to Google, using its own
 credentials. An `apply` command is written to that process's standard input,
 never passed as an argument, because a process's arguments are readable by
-every program running as you. Opening the TUI from the pane runs
+every program running as you — so no task title and no task id ever appears in
+an argument list. Setting a due date runs one more read, `oxidone json due
+<what you typed>`, which is the one place a string you typed is passed as an
+argument: that subcommand takes it that way and there is no other route. It
+needs no credentials and makes no network request of its own. Opening the TUI from the pane runs
 `omarchy-launch-or-focus-tui` the same way: an absolute-path process, its
 argument passed as its own array element. Nothing in this plugin runs through
 a shell.

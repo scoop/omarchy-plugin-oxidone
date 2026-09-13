@@ -5,24 +5,92 @@
 // command that goes out or folds the answer that came back into the Snapshot;
 // nothing in this file invents an Entry state.
 
-// The four that ship in this slice. `create`, `retitle`, `set_due` and
-// `clear_due` all need a text field and are slice 4 — an op absent from this
-// list is refused by buildCommand rather than sent and rejected by the CLI.
-var OPS = ["complete", "uncomplete", "migrate", "delete"];
+// All eight the contract names. Four take an id and nothing else; the four
+// added in slice 4 carry text, which is why they arrived a slice later.
+var OPS = [
+  "complete",
+  "uncomplete",
+  "migrate",
+  "delete",
+  "create",
+  "retitle",
+  "set_due",
+  "clear_due",
+];
 
-function buildCommand(op, listId, taskId) {
+// Exactly the fields each op's row in the contract names, and in the order the
+// contract writes them. The CLI refuses an unknown field rather than ignoring
+// it, so a field too many fails the whole call — and one too few is a write
+// that means something other than what was asked.
+var FIELDS = {
+  complete: ["list", "task"],
+  uncomplete: ["list", "task"],
+  migrate: ["list", "task"],
+  delete: ["list", "task"],
+  create: ["list", "title"],
+  retitle: ["list", "task", "title"],
+  set_due: ["list", "task", "due"],
+  clear_due: ["list", "task"],
+};
+
+// `apply` takes ISO and only ISO — `json due` is what turns a phrase into one.
+// A shape check, not a calendar: whether 2026-02-31 is a day is oxidone's
+// question, and this only keeps a phrase from reaching a field that cannot hold
+// one.
+var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// A field we did not ask for is a caller bug, and sending it would fail the
+// whole call at the CLI. Say so here, where the name is still in hand.
+function refuseExtraFields(op, params, wanted) {
+  for (var given in params) {
+    if (wanted.indexOf(given) < 0) {
+      throw new Error("apply: " + op + " takes no `" + given + "`");
+    }
+  }
+}
+
+// One field, checked against what its name means on the wire. Throws rather
+// than returns a default: a command missing a field, or carrying a `due` that
+// is not a date, means something other than what was asked.
+function checkedField(op, field, value) {
+  if (typeof value !== "string" || value === "") {
+    throw new Error("apply: " + op + " needs a `" + field + "`");
+  }
+  // A title of nothing but spaces is not a title, and Google would keep it.
+  if (field === "title" && value.trim() === "") {
+    throw new Error("apply: a title cannot be blank");
+  }
+  if (field === "due" && !ISO_DATE.test(value)) {
+    throw new Error("apply: `due` must be ISO YYYY-MM-DD, not " + value);
+  }
+  return value;
+}
+
+function buildCommand(op, params) {
   if (OPS.indexOf(op) < 0) {
     throw new Error("apply: not an op this release sends: " + String(op));
   }
-  if (typeof listId !== "string" || listId === "") {
-    throw new Error("apply: empty list id");
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    throw new Error("apply: " + op + " needs its fields");
   }
-  if (typeof taskId !== "string" || taskId === "") {
-    throw new Error("apply: empty task id");
+  var wanted = FIELDS[op];
+  refuseExtraFields(op, params, wanted);
+  var command = { op: op };
+  for (var i = 0; i < wanted.length; i++) {
+    command[wanted[i]] = checkedField(op, wanted[i], params[wanted[i]]);
   }
-  // Exactly the contract's fields and no others: the CLI refuses an unknown
-  // field rather than ignoring it, so anything extra here fails the whole call.
-  return JSON.stringify({ op: op, list: listId, task: taskId });
+  return JSON.stringify(command);
+}
+
+// The key a capture's Pending and message are held under. Unique per capture,
+// because the Pane's strip stays open for a run: two entries typed in
+// succession are two Applies in flight, and a shared key would let the second
+// erase the first's report. Derived from a counter rather than the title, so
+// the same title twice is still two captures. The colon keeps it out of the
+// shape a Google task id has, which is what makes a mix-up impossible rather
+// than merely unlikely.
+function captureKey(seq) {
+  return "capture:" + String(seq);
 }
 
 // An Entry we can actually fold in: an object with a string id. Anything else
@@ -77,7 +145,14 @@ function parseDeleted(stdout) {
 // and Google's — "unknown variant ... at line 1 column 28" is a developer's
 // sentence, and a `rejected` message is Google talking to nobody in
 // particular. Neither reaches a QML sink; both go to the log.
-function messageForExit(code) {
+//
+// `context` narrows one code the caller knows more about than the code does:
+// resolving a date phrase, exit 2 is `invalid_due` and nothing else, so it can
+// say what actually happened instead of blaming the request's shape.
+function messageForExit(code, context) {
+  if (context === "due" && code === 2) {
+    return "that is not a date";
+  }
   switch (code) {
     case 0:
       return "done";
@@ -102,6 +177,15 @@ function messageForExit(code) {
   }
 }
 
+// A Today capture is two Applies — `create`, then `set_due` with the Snapshot's
+// own date — and only the second can fail on its own. The entry is real and the
+// person should be told where, since an undated entry is in no Today to be
+// found in. The title is the caller's to sanitize before it gets here.
+function halfCaptureMessage(listTitle) {
+  var where = typeof listTitle === "string" && listTitle !== "" ? " in " + listTitle : "";
+  return "created, but could not be dated — it is undated" + where;
+}
+
 // A new array every time. QML re-evaluates a binding on a new reference, not on
 // a mutation, so patching in place would change the data and update nothing.
 function patchEntries(entries, echo) {
@@ -113,6 +197,22 @@ function patchEntries(entries, echo) {
     out.push(entries[i] && entries[i].id === echo.id ? echo : entries[i]);
   }
   return out;
+}
+
+// An Entry the Snapshot does not have yet, put where Google puts it: at the
+// top. Not a guess — a new Task goes to the head of its List, which is what the
+// Echo's own `position` will say on the next read. An id already present is
+// patched instead, so folding twice cannot double a row.
+function insertEntry(entries, echo) {
+  if (!Array.isArray(entries) || !usableEntry(echo)) {
+    return entries;
+  }
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i] && entries[i].id === echo.id) {
+      return patchEntries(entries, echo);
+    }
+  }
+  return [echo].concat(entries);
 }
 
 // A poll supersedes only the failures it actually describes. An Entry the
@@ -162,11 +262,15 @@ function removeEntry(entries, id) {
 if (typeof module !== "undefined") {
   module.exports = {
     OPS: OPS,
+    FIELDS: FIELDS,
     buildCommand: buildCommand,
+    captureKey: captureKey,
     parseEcho: parseEcho,
     parseDeleted: parseDeleted,
     messageForExit: messageForExit,
+    halfCaptureMessage: halfCaptureMessage,
     patchEntries: patchEntries,
+    insertEntry: insertEntry,
     removeEntry: removeEntry,
     retainErrorsAbsentFrom: retainErrorsAbsentFrom,
   };

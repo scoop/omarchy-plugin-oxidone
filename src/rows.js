@@ -73,6 +73,14 @@ function entryRow(entry, today) {
     id: String(entry.id === undefined || entry.id === null ? "" : entry.id),
     list: String(entry.list === undefined || entry.list === null ? "" : entry.list),
     title: plain(entry.display_title),
+    // The title as oxidone gave it: untruncated, unreplaced, and never drawn.
+    // `retitle` takes a Display title and re-applies the entry's own type, so
+    // an editor seeded from `title` above would save back the elision and the
+    // replaced bidi marks that made it safe to render — silently shortening a
+    // long title and flattening a mixed-direction one. This is what seeds it.
+    rawTitle: String(
+      entry.display_title === undefined || entry.display_title === null ? "" : entry.display_title,
+    ),
     signifier: signifierFor(entry.type),
     completed: entry.status === "completed",
     overdue: isOverdue(entry, today) && isOutstanding(entry),
