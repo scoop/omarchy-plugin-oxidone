@@ -137,6 +137,15 @@ Item {
         if (!versionChecked) {
             if (!versionProc.running) {
                 root.versionEpoch = root.epoch;
+                // Captured here rather than bound on the process, because
+                // `onResolvedBinaryChanged` calls refresh() in the same turn the
+                // path changed and a binding on `command` has not re-evaluated
+                // by then — the check would run against the binary we just moved
+                // away from, and `versionEpoch === epoch` would make that stale
+                // answer authoritative. Epoch and argv now come from one read of
+                // `resolvedBinary`, so the guard and the process cannot disagree
+                // about which binary this is.
+                versionProc.command = [root.resolvedBinary, "--version"];
                 versionProc.start();
             }
             return;
@@ -314,7 +323,8 @@ Item {
 
     BoundedProcess {
         id: versionProc
-        command: [root.resolvedBinary, "--version"]
+        // No `command` binding: refresh() assigns it immediately before start,
+        // so the path this asks about is the path the epoch was captured from.
         maxBytes: 256
         deadlineMs: 5000
         onFinishedWith: function (out, err, code, tooLarge) {
