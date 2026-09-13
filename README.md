@@ -41,9 +41,10 @@ from a single key in the pane:
 Every change is one `oxidone json apply`, with the command on the process's
 standard input rather than its arguments. The pane shows only what oxidone
 answers with: a row waits, muted, until the change is confirmed, and a change
-that fails says so on the row and leaves the entry exactly as it was. Nothing
-is applied locally first, so what you see is never a guess about what Google
-did.
+that fails says so on the row. The plugin never changes an entry itself, so a
+failure leaves it exactly as oxidone last reported it — and a row whose entry
+turns out to be already gone from Google simply disappears. Nothing is applied
+locally first, so what you see is never a guess about what Google did.
 
 Deleting has no undo here. Google keeps a deleted task recoverable in its own
 web client, which is why the confirm prompt says so — this plugin cannot bring
@@ -99,6 +100,10 @@ where that's the only way forward.
 | `x`              | Delete it — once to arm, again to confirm |
 | Enter            | Open oxidone and close the pane           |
 | Esc              | Cancel an armed delete, or close the pane |
+
+The row under the cursor, or under the pointer, also reveals buttons for those
+same complete, migrate and delete actions; the delete button arms the row, and
+the confirming second press is still `x`.
 
 ## Settings
 
