@@ -1,5 +1,6 @@
 #!/bin/bash
-# A stand-in for the oxidone binary, for the QML harness only. Never installed.
+# A test fixture for the QML harness. The entire repository is cloned by
+# omarchy plugin add, but the plugin never executes this file.
 #
 # BoundedProcess clears the environment, so the one channel the harness has for
 # steering this is a file under HOME — which the fixed environment does carry.
