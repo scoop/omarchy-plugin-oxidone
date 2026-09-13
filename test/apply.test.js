@@ -7,6 +7,7 @@ import {
   messageForExit,
   patchEntries,
   removeEntry,
+  retainErrorsAbsentFrom,
 } from "../src/apply.js";
 
 const entry = (over) =>
@@ -108,4 +109,37 @@ test("removeEntry drops exactly one id", () => {
   expect(removeEntry(before, "a").map((e) => e.id)).toEqual(["b"]);
   expect(removeEntry(before, "zzz").map((e) => e.id)).toEqual(["a", "b"]);
   expect(before.length).toBe(2);
+});
+
+test("retainErrorsAbsentFrom clears an id the answer mentions", () => {
+  const errors = { a: "could not reach Google", b: "that entry is gone" };
+  const result = retainErrorsAbsentFrom(errors, [entry({ id: "a" })]);
+  expect(result).toEqual({ b: "that entry is gone" });
+});
+
+test("retainErrorsAbsentFrom keeps an id the answer does not mention", () => {
+  const errors = { a: "could not reach Google" };
+  // A List-scope row with no Today date: a Today poll never names it.
+  const result = retainErrorsAbsentFrom(errors, [entry({ id: "zzz" })]);
+  expect(result).toEqual({ a: "could not reach Google" });
+});
+
+test("retainErrorsAbsentFrom keeps everything on an empty answer", () => {
+  const errors = { a: "could not reach Google", b: "that entry is gone" };
+  expect(retainErrorsAbsentFrom(errors, [])).toEqual(errors);
+});
+
+test("retainErrorsAbsentFrom does not throw on a non-array entries", () => {
+  const errors = { a: "could not reach Google" };
+  expect(() => retainErrorsAbsentFrom(errors, null)).not.toThrow();
+  expect(() => retainErrorsAbsentFrom(errors, undefined)).not.toThrow();
+  expect(() => retainErrorsAbsentFrom(errors, "nope")).not.toThrow();
+  expect(retainErrorsAbsentFrom(errors, null)).toEqual(errors);
+});
+
+test("retainErrorsAbsentFrom does not mutate the input object", () => {
+  const errors = { a: "could not reach Google", b: "that entry is gone" };
+  const snapshot = Object.assign({}, errors);
+  retainErrorsAbsentFrom(errors, [entry({ id: "a" })]);
+  expect(errors).toEqual(snapshot);
 });

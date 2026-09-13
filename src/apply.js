@@ -115,6 +115,37 @@ function patchEntries(entries, echo) {
   return out;
 }
 
+// A poll supersedes only the failures it actually describes. An Entry the
+// answer does not mention — a List-scope row with no Today date, say — keeps
+// its message until something speaks to that row.
+function retainErrorsAbsentFrom(errors, entries) {
+  if (!errors || typeof errors !== "object" || Array.isArray(errors)) {
+    return {};
+  }
+  if (!Array.isArray(entries)) {
+    // Nothing to compare against: safest is to change nothing, since we
+    // cannot tell which failures this answer speaks to.
+    var copy = {};
+    for (var key in errors) {
+      copy[key] = errors[key];
+    }
+    return copy;
+  }
+  var seen = {};
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i] && typeof entries[i].id === "string") {
+      seen[entries[i].id] = true;
+    }
+  }
+  var out = {};
+  for (var id in errors) {
+    if (!seen[id]) {
+      out[id] = errors[id];
+    }
+  }
+  return out;
+}
+
 function removeEntry(entries, id) {
   if (!Array.isArray(entries) || typeof id !== "string" || id === "") {
     return entries;
@@ -137,5 +168,6 @@ if (typeof module !== "undefined") {
     messageForExit: messageForExit,
     patchEntries: patchEntries,
     removeEntry: removeEntry,
+    retainErrorsAbsentFrom: retainErrorsAbsentFrom,
   };
 }

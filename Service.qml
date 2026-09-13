@@ -79,6 +79,12 @@ Item {
 
     readonly property int applyQueueDepth: applyQueue.length + (applyCurrent !== null ? 1 : 0)
 
+    // Bumped by every fold. Mirrors `epoch`: a Today poll captures this before
+    // it starts, and if a fold happens while that poll is in flight, the poll's
+    // answer is older than the fold and must not overwrite it — the fold is the
+    // server's own, newer word on that row.
+    property int applyGeneration: 0
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -106,6 +112,10 @@ Item {
     property int versionEpoch: 0
     property int todayEpoch: 0
 
+    // The Apply generation this Today poll was started against. Captured in
+    // the same breath as `todayEpoch`, immediately before the process starts.
+    property int todayApplyGeneration: 0
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
@@ -131,6 +141,7 @@ Item {
         }
         if (!todayProc.running) {
             root.todayEpoch = root.epoch;
+            root.todayApplyGeneration = root.applyGeneration;
             todayProc.start();
         }
     }
@@ -205,7 +216,7 @@ Item {
             // Our bug, not oxidone's refusal: a row without a list id, or an op
             // this release does not send.
             console.warn("oxidone: refusing to send", op, "-", error.message);
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "the change did not go through");
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, Apply.messageForExit(1));
             return;
         }
         root.clearApplyError(taskId);
@@ -246,6 +257,9 @@ Item {
                 entries: Apply.patchEntries(root.listPayload.entries, echo),
             };
         }
+        // Every fold is a write the Snapshot now carries that a poll started
+        // earlier cannot know about.
+        root.applyGeneration += 1;
     }
 
     function _foldDeletion(entryId) {
@@ -261,6 +275,9 @@ Item {
                 entries: Apply.removeEntry(root.listPayload.entries, entryId),
             };
         }
+        // Every fold is a write the Snapshot now carries that a poll started
+        // earlier cannot know about.
+        root.applyGeneration += 1;
     }
 
     function scheduleNext(code) {
@@ -332,16 +349,26 @@ Item {
             }
             try {
                 var payload = Today.parseToday(out);
-                root.outstanding = Today.outstandingCount(payload);
-                root.overdue = Today.hasOverdue(payload);
-                root.payload = payload;
+                if (root.applyGeneration !== root.todayApplyGeneration) {
+                    // An Apply folded its Echo into the Snapshot while this read
+                    // was in flight. That Echo is the server's own, newer word on
+                    // its row; this answer was gathered before it and would
+                    // silently revert it (a completed task un-completing itself)
+                    // if written. Keep the fold; still take the parts of a
+                    // successful poll that do not touch the Snapshot's rows.
+                    console.warn("oxidone: today answer predates a write in flight, not folding it in");
+                } else {
+                    root.outstanding = Today.outstandingCount(payload);
+                    root.overdue = Today.hasOverdue(payload);
+                    root.payload = payload;
+                }
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
-                // A fresh answer supersedes every failure it describes. Without
-                // this a row keeps "could not reach Google" under a poll that
-                // just reached it.
-                root.applyErrors = ({});
+                // A poll supersedes only the failures it actually describes: an
+                // Entry absent from this answer (a List-scope row with no Today
+                // date, say) keeps its message until something speaks to that row.
+                root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
                 root.scheduleNext(0);
             } catch (error) {
                 // A clean exit with an answer we cannot read is our bug, not
@@ -449,15 +476,19 @@ Item {
                 // oxidone's own message goes here and nowhere else: it is
                 // serde's sentence or Google's, not one to show a person.
                 console.warn("oxidone: apply", sent.op, "failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(tooLarge ? 1 : code));
-                if (code === 3) {
-                    // A fact about the grant, not about this row.
-                    root.state = State.AUTH_NEEDED;
-                } else if (code === 6) {
-                    // The Entry is gone, which means the Snapshot is wrong about
-                    // more than the row we touched. Drop it and re-read.
+                if (code === 6) {
+                    // The row is gone from both Snapshots by the time
+                    // _foldDeletion returns, so there is no row left to carry a
+                    // message: the Pane looks errors up by row id, and this id no
+                    // longer names one. The row's disappearance is the feedback.
                     root._foldDeletion(sent.task);
                     root.refresh();
+                } else {
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(tooLarge ? 1 : code));
+                    if (code === 3) {
+                        // A fact about the grant, not about this row.
+                        root.state = State.AUTH_NEEDED;
+                    }
                 }
                 // Deliberately not STALE on exit 4: `stale` is a fact about a
                 // Today poll, and a failed write is not a failed poll.
@@ -469,7 +500,15 @@ Item {
                 var deleted = Apply.parseDeleted(out);
                 if (deleted === null) {
                     console.warn("oxidone: apply delete answered with something unreadable");
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, "the change did not go through");
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                    root.drainApply();
+                    return;
+                }
+                if (deleted.id !== sent.task || deleted.list !== sent.list) {
+                    // Answered for an Entry we did not send. Folding this would
+                    // remove the wrong row from both Snapshots — fail closed.
+                    console.warn("oxidone: apply delete answered for a different entry than sent");
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
                     root.drainApply();
                     return;
                 }
@@ -484,7 +523,7 @@ Item {
                 // Snapshot untouched and say the change did not land, rather
                 // than claiming a success we cannot show.
                 console.warn("oxidone: apply", sent.op, "answered with something unreadable");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, "the change did not go through");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
                 root.drainApply();
                 return;
             }
