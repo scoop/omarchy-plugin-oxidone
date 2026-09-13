@@ -224,7 +224,9 @@ Wayland session. Its config folder, and the fake binaries it swaps the Service
 between, are written to a temp directory as the test runs rather than committed:
 `qs` will not import QML from outside the folder it is given, the marketplace
 validator refuses symlinks inside a plugin, and by the rule above a committed
-fake would be an executable sitting on every user's machine.
+fake would be an executable sitting on every user's machine. It skips itself
+where `qs` is absent, which is anywhere that is not a machine this plugin could
+run on — so, like `bun run validate`, it is a gate the local run enforces.
 
 **The Indicator does not move while an Apply is in flight.** It is a glance
 surface; a sub-second Pending state would flicker at the edge of vision. The

@@ -24,6 +24,16 @@ import { tmpdir } from "node:os";
 
 const repo = join(import.meta.dir, "..");
 
+// The harness runs the Service under quickshell, which is always present on the
+// machine this plugin runs on and never on a stock CI runner. Failing there would
+// leave CI permanently red over something it cannot install, so it skips instead
+// — loudly. The coverage is not optional so much as local: every machine this
+// plugin is developed on has quickshell, because it is what the plugin runs in.
+const quickshell = Bun.which("qs");
+if (quickshell === null) {
+  console.warn("service-version-gate: no `qs` on PATH — skipping the QML harness");
+}
+
 // Enough of an Entry to be the answer to `json today`: the id is what the test
 // reads back, and the rest is shaped like oxidone's so the parser is exercised
 // rather than tiptoed around.
@@ -103,36 +113,44 @@ function swapBinary(firstVersion, secondVersion) {
   }
 }
 
-test("the re-check after a path change is answered by the new binary, not the previous one", () => {
-  const { report, ran } = swapBinary("1.2.0", "1.1.0");
+test.skipIf(quickshell === null)(
+  "the re-check after a path change is answered by the new binary, not the previous one",
+  () => {
+    const { report, ran } = swapBinary("1.2.0", "1.1.0");
 
-  // The heart of it: exactly one version check ever ran against the binary we
-  // moved away from. A second one is the defect — the re-check for the
-  // replacement, answered by its predecessor.
-  expect(ran.filter((line) => line === "first --version")).toHaveLength(1);
+    // The heart of it: exactly one version check ever ran against the binary we
+    // moved away from. A second one is the defect — the re-check for the
+    // replacement, answered by its predecessor.
+    expect(ran.filter((line) => line === "first --version")).toHaveLength(1);
 
-  // The replacement was asked, it is below the floor, and the gate says so.
-  expect(ran).toContain("second --version");
-  expect(report.state).toBe("unusable");
-  expect(report.versionOk).toBe(false);
+    // The replacement was asked, it is below the floor, and the gate says so.
+    expect(ran).toContain("second --version");
+    expect(report.state).toBe("unusable");
+    expect(report.versionOk).toBe(false);
 
-  // And nothing was read from it: a binary that fails the gate is not one we
-  // then go and talk to.
-  expect(ran).not.toContain("second json today");
-}, 60000);
+    // And nothing was read from it: a binary that fails the gate is not one we
+    // then go and talk to.
+    expect(ran).not.toContain("second json today");
+  },
+  60000,
+);
 
-test("a usable replacement is vetted on its own path and then polled", () => {
-  const { report, ran } = swapBinary("1.2.0", "1.2.0");
+test.skipIf(quickshell === null)(
+  "a usable replacement is vetted on its own path and then polled",
+  () => {
+    const { report, ran } = swapBinary("1.2.0", "1.2.0");
 
-  expect(ran.filter((line) => line === "first --version")).toHaveLength(1);
+    expect(ran.filter((line) => line === "first --version")).toHaveLength(1);
 
-  // Vetted first, read second — the order the gate exists to impose.
-  const second = ran.filter((line) => line.startsWith("second "));
-  expect(second[0]).toBe("second --version");
-  expect(second).toContain("second json today");
+    // Vetted first, read second — the order the gate exists to impose.
+    const second = ran.filter((line) => line.startsWith("second "));
+    expect(second[0]).toBe("second --version");
+    expect(second).toContain("second json today");
 
-  // The Snapshot is the replacement's own answer.
-  expect(report.state).toBe("ok");
-  expect(report.versionOk).toBe(true);
-  expect(report.entry).toBe("entry-second");
-}, 60000);
+    // The Snapshot is the replacement's own answer.
+    expect(report.state).toBe("ok");
+    expect(report.versionOk).toBe(true);
+    expect(report.entry).toBe("entry-second");
+  },
+  60000,
+);
