@@ -6,6 +6,7 @@ import {
   signifierFor,
   dueLabel,
   selectableIndexes,
+  titleRole,
   MAX_TITLE,
 } from "../src/rows.js";
 
@@ -188,4 +189,49 @@ test("a title cut mid-emoji does not leave half a character behind", () => {
       expect(prev >= 0xd800 && prev <= 0xdbff).toBe(true);
     }
   }
+});
+
+const entriesOf = (rows) =>
+  Object.fromEntries(rows.filter((r) => r.kind === "entry").map((r) => [r.id, r]));
+
+const titleRows = () =>
+  entriesOf(
+    buildRows(
+      payload([
+        entry({ id: "late", due: "2026-07-01" }),
+        entry({ id: "now" }),
+        entry({ id: "done", status: "completed" }),
+      ]),
+    ),
+  );
+
+test("a title's colour answers one question: is this entry late", () => {
+  const rows = titleRows();
+  expect(titleRole(rows.late, false)).toBe("urgent");
+  expect(titleRole(rows.now, false)).toBe("text");
+  expect(titleRole(rows.done, false)).toBe("muted");
+});
+
+test("a pending row is muted whatever else is true of it", () => {
+  // The same muted the Snapshot wears when it cannot be trusted, and it
+  // outranks overdue for the same reason: we do not know yet.
+  const rows = titleRows();
+  expect(titleRole(rows.now, true)).toBe("muted");
+  expect(titleRole(rows.late, true)).toBe("muted");
+});
+
+test("a failed or armed row's title still answers only overdue-ness", () => {
+  // Issue #6: urgent used to mean both "late" and "this did not go through",
+  // so a row that was both was entirely one colour. Neither state is an input
+  // here — parking them on the row proves the function cannot read them, and
+  // the failure message and the armed prompt keep urgent of their own.
+  const rows = titleRows();
+  const failed = Object.assign({}, rows.now, { failure: "oxidone did not answer" });
+  const failedAndLate = Object.assign({}, rows.late, { failure: "oxidone did not answer" });
+  const armed = Object.assign({}, rows.now, { armed: true });
+  const armedAndLate = Object.assign({}, rows.late, { armed: true });
+  expect(titleRole(failed, false)).toBe("text");
+  expect(titleRole(failedAndLate, false)).toBe("urgent");
+  expect(titleRole(armed, false)).toBe("text");
+  expect(titleRole(armedAndLate, false)).toBe("urgent");
 });

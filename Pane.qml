@@ -905,6 +905,11 @@ Item {
                     readonly property bool pending: root.service !== null && root.service.applyPending[row.id] === true
                     readonly property bool armed: root.armedId === row.id
                     readonly property string failure: root.service !== null && root.service.applyErrors[row.id] !== undefined ? root.service.applyErrors[row.id] : ""
+                    // The whole of the title's colour decision, taken in
+                    // `src/rows.js` where it can be read as a table and tested.
+                    // Neither `armed` nor `failure` is an input to it — see the
+                    // rule at `Rows.titleRole`.
+                    readonly property string titleRole: Rows.titleRole(row, entrySurface.pending)
 
                     MouseArea {
                         id: rowHover
@@ -952,10 +957,10 @@ Item {
                             id: titleText
                             width: parent.width - Style.space(10) - Style.spacing.xs * 2 - notesText.width
                             text: row.title
-                            // Pending is the same muted the Snapshot wears when
-                            // it cannot be trusted, and means the same thing: we
-                            // do not know yet.
-                            color: entrySurface.pending ? Color.muted : (entrySurface.armed || entrySurface.failure !== "" ? Color.urgent : (row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)))
+                            // Roles, not colours, come out of `src/`: it holds
+                            // no QML types, and `Color.menu.text` exists only
+                            // here. This line is the whole of the mapping.
+                            color: entrySurface.titleRole === "urgent" ? Color.urgent : (entrySurface.titleRole === "muted" ? Color.muted : Color.menu.text)
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.body
                             font.strikeout: row.completed
