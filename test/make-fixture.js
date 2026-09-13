@@ -26,9 +26,17 @@ const FIXTURE = String.raw`#!/bin/bash
 # steering this is a file under HOME, which the fixed environment does carry.
 set -euo pipefail
 
+# Digits only, so that whatever is in the file, what comes out of this is
+# something exit will take. A hyphen in the class survived in the middle of a
+# value ("1-2"), and bash's exit refuses that - after the error envelope has
+# already gone out, leaving a half-answer that reads as the binary's own. The
+# squeeze asks for exit 12 there instead, which is a wrong answer to a malformed
+# question rather than no answer at all. No exit worth asking for is lost: the
+# plugin's -1 is BoundedProcess saying the process never ran, which is not
+# something a binary can return.
 fail_with=""
 if [[ -r "${"$"}{HOME}/.fake-oxidone-exit" ]]; then
-  fail_with="$(head -c 8 "${"$"}{HOME}/.fake-oxidone-exit" | tr -dc '0-9-')"
+  fail_with="$(head -c 8 "${"$"}{HOME}/.fake-oxidone-exit" | tr -dc '0-9')"
 fi
 
 # Which op the failure above applies to. Empty means every one of them. A
@@ -97,7 +105,15 @@ case "${"$"}{2:-}" in
     exit 0
     ;;
   tasks)
-    printf '{"list":"%s","entries":[%s]}\n' "${"$"}{4:-L1}" \
+    # A positional read of $4 answered as though a list had been named whenever
+    # one was not: "json tasks" alone fell back to L1, and "json tasks --list"
+    # with no id did the same. An id is an id only when --list says so; anything
+    # else is the usage error the real CLI would give.
+    if [[ ${"$"}{3:-} != "--list" || -z ${"$"}{4:-} ]]; then
+      echo '{"error":{"kind":"usage","message":"fake: tasks needs --list <id>"}}' >&2
+      exit 2
+    fi
+    printf '{"list":"%s","entries":[%s]}\n' "$4" \
       "$(entry a 'Send the signed contract back' 2026-09-09 needsAction 01)"
     exit 0
     ;;

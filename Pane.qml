@@ -1025,6 +1025,13 @@ Item {
                             // yields, because the actions are only ever on the
                             // one row being looked at, and it comes straight
                             // back when the cursor moves on.
+                            //
+                            // The swap also changes how much room is left for
+                            // the title, so the title re-elides as the cursor
+                            // steps. Left that way on purpose: holding the width
+                            // steady means reserving five buttons' worth on
+                            // every row in every state, paying in title width
+                            // everywhere to settle the one row being looked at.
                             visible: !entrySurface.armed && entrySurface.failure === "" && !actions.visible
                             text: row.dueLabel
                             color: row.overdue ? Color.urgent : Color.muted
@@ -1033,8 +1040,14 @@ Item {
                             textFormat: Text.PlainText
                         }
 
-                        // The mouse's way to the same three ops the keyboard has.
+                        // The mouse's way to the same five ops the keyboard has.
                         // Revealed on the focused or hovered row, per the spec.
+                        //
+                        // Every one of them moves the cursor, so every one
+                        // disarms first, exactly as the row's own MouseArea
+                        // does: a prompt left standing on the row the cursor
+                        // walked away from is a question about nothing. Delete
+                        // arms again on its way out, which is its whole point.
                         Row {
                             id: actions
                             spacing: Style.spacing.xs
@@ -1046,6 +1059,7 @@ Item {
                                 focusable: false
                                 fontFamily: root.fontFamily
                                 onClicked: {
+                                    root.armedId = "";
                                     root.selectedId = row.id;
                                     root.toggleComplete();
                                 }
@@ -1057,6 +1071,7 @@ Item {
                                 focusable: false
                                 fontFamily: root.fontFamily
                                 onClicked: {
+                                    root.armedId = "";
                                     root.selectedId = row.id;
                                     root.openRetitle();
                                 }
@@ -1068,6 +1083,7 @@ Item {
                                 focusable: false
                                 fontFamily: root.fontFamily
                                 onClicked: {
+                                    root.armedId = "";
                                     root.selectedId = row.id;
                                     root.openDue();
                                 }
@@ -1079,6 +1095,7 @@ Item {
                                 focusable: false
                                 fontFamily: root.fontFamily
                                 onClicked: {
+                                    root.armedId = "";
                                     root.selectedId = row.id;
                                     root.applySelected("migrate");
                                 }
