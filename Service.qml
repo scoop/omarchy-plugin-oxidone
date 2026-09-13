@@ -201,13 +201,21 @@ Item {
     }
 
     /**
-     * Ask oxidone what a date change did to Today.
+     * Read Today again, because something just happened that only oxidone can
+     * describe the consequences of.
      *
-     * `set_due` may move an Entry out of Today or leave it in, and only the
-     * `due <= today` rule decides — the rule oxidone#137 made oxidone's alone.
-     * Rather than keep a second copy of it here, fold what the server said and
-     * then read Today again. A no-op while a poll is already running; the flag
-     * is what gets it re-asked once that one lands.
+     * Two things ask for this. `set_due` may move an Entry out of Today or
+     * leave it in, and only the `due <= today` rule decides — the rule
+     * oxidone#137 made oxidone's alone; rather than keep a second copy of it
+     * here, fold what the server said and then read Today again. An Apply told
+     * its Entry is already gone asks for the same thing for a different reason:
+     * an Entry that vanished underneath us is evidence the Snapshot was out of
+     * date in ways beyond the one row the fold just dropped.
+     *
+     * The flag rather than a bare `refresh()`, because `refresh()` does nothing
+     * while a poll is already running — which is exactly when the answer we
+     * hold is most likely to be the one that went out of date. This gets the
+     * re-read asked for once that poll lands instead of dropping it.
      */
     function settleToday() {
         root.todayRepollWanted = true;
@@ -842,6 +850,12 @@ Item {
             root.applyCurrent = null;
             applyProc.stdinPayload = "";
             if (sent === null) {
+                // Defensive, and unreachable from outside this file: only
+                // `drainApply` starts this process, and it sets `applyCurrent`
+                // in the same breath. Kept anyway, because what it guards is
+                // dereferencing null inside the desktop shell's own process —
+                // and left untested on purpose, since a test would have to fake
+                // a start the code has no way to perform.
                 root.drainApply();
                 return;
             }
@@ -863,6 +877,13 @@ Item {
             }
 
             if (code !== 0 || tooLarge) {
+                // `tooLarge` reaches the message and stops there. The exit code
+                // is oxidone's verdict on the request and stays true whether or
+                // not its answer fit our buffer, so the branches below read it
+                // raw: an overflowed exit 3 is still a grant that is gone, and
+                // an overflowed exit 6 is still an Entry that is. Only what we
+                // say is downgraded, because an overflowed body is one we could
+                // not read.
                 var kind = State.errorKindOf(err);
                 // oxidone's own message goes here and nowhere else: it is
                 // serde's sentence or Google's, not one to show a person.
@@ -874,8 +895,18 @@ Item {
                     // longer names one. The row's disappearance is the feedback.
                     // A capture has no such row — exit 6 there is a List that
                     // went, and it needs saying.
+                    //
+                    // `settleToday`, not `refresh`: the re-read has to survive a
+                    // poll already being in flight, or "drop the row and read
+                    // again" is only what happens when nothing else is running.
+                    //
+                    // That re-read is then a poll like any other, and one that
+                    // fails raises `consecutiveFailures` and can set STALE. Not
+                    // a contradiction of the note below: what went stale is the
+                    // Today poll, genuinely, and this write is only what made it
+                    // run now rather than on the clock.
                     root._foldDeletion(sent.params.task);
-                    root.refresh();
+                    root.settleToday();
                 } else {
                     root._reportFailure(sent, root._chainAware(sent, Apply.messageForExit(tooLarge ? 1 : code)));
                     if (code === 3) {

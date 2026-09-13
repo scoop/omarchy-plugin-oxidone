@@ -32,14 +32,14 @@ rather than guessing.
 This release reads on a poll and can change what follows, each from a single
 key in the pane:
 
-| Key     | What it does                                                                                                               |
-| ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `Space` | Completes the entry, or reopens it if it is already complete.                                                              |
-| `m`     | Migrates it — moves its due date to the later of tomorrow or the day after its own due date. Never an exit; it stays open. |
-| `x`     | Deletes it. Press `x` once to arm the row, `x` again to confirm.                                                           |
-| `a`     | Captures a new entry from a title. See "Capturing" below.                                                                  |
-| `e`     | Renames it. The field opens with the current title; the entry keeps its type.                                              |
-| `d`     | Sets its due date, or clears the date if you empty the field and press Enter.                                              |
+| Key     | What it does                                                                                                      |
+| ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Space` | Completes the entry, or reopens it if it is already complete.                                                     |
+| `m`     | Migrates it — its due date moves to tomorrow, or a day past its own due date if that is later, and it stays open. |
+| `x`     | Deletes it. Press `x` once to arm the row, `x` again to confirm.                                                  |
+| `a`     | Captures a new entry from a title. See "Capturing" below.                                                         |
+| `e`     | Renames it. The field opens with the current title; the entry keeps its type.                                     |
+| `d`     | Sets its due date, or clears the date if you empty the field and press Enter.                                     |
 
 Every change is one `oxidone json apply`, with the command on the process's
 standard input rather than its arguments. The pane shows only what oxidone

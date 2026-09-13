@@ -95,6 +95,13 @@ function captureKey(seq) {
 
 // An Entry we can actually fold in: an object with a string id. Anything else
 // is refused whole rather than patched in as a hole.
+//
+// The id and nothing else, deliberately. `rows.js` defends every field it
+// draws, so an Echo carrying only an id degrades to a blank row the next poll
+// replaces. Checking the rest here would be stricter than the way Entries
+// usually arrive — `parseToday` and `parseList` ask only that an entry be an
+// object — and a guard tight in one doorway and loose in the other keeps
+// nothing out. Tighten both or neither.
 function usableEntry(value) {
   return (
     value !== null &&
@@ -105,6 +112,18 @@ function usableEntry(value) {
   );
 }
 
+// The two parses below open the same way, and `today.js` opens that way twice
+// more. They stay apart because both routes out are shut, and both were tried
+// against the real engines rather than assumed:
+//
+// A helper the two files share cannot exist. QML takes one — `.import
+// "shared.js" as Shared` resolves and works — but `.import` is a syntax error
+// under bun, and `src/` is only worth having while the shell and the test
+// runner load the identical file.
+//
+// The `error` neither catch uses cannot go either. Qt's JS engine rejects the
+// optional catch binding as a syntax error, and a file carrying one does not
+// load at all — the shell comes up without it.
 function parseEcho(stdout) {
   var payload;
   try {
