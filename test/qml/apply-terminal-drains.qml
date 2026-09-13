@@ -68,8 +68,8 @@ ShellRoot {
 
         // Deferred, not called straight from the signal: `applyCurrent` is
         // set to null at the very top of `onFinishedWith`, before that same
-        // call goes on to clear `applyPending` and set whatever error the
-        // branch reports. A direct call here would read the report's fields
+        // call goes on to fold the answer and set whatever error the branch
+        // reports. A direct call here would read the report's fields
         // mid-way through that function, before its own tail (`drainApply()`
         // among it) has run. `Qt.callLater` waits for the current call stack
         // — that whole `onFinishedWith` invocation — to finish unwinding

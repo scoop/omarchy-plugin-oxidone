@@ -74,10 +74,24 @@ Item {
     property var applyQueue: []
     property var applyCurrent: null
 
-    // Used as sets keyed by Entry id. Assigned whole on every change, never
-    // mutated: a `var` property does not notify on mutation, so an in-place
-    // write would change the data and update no binding in the Pane.
-    property var applyPending: ({})
+    // Which rows are Pending, as a set keyed by Entry id. Derived, never
+    // written: it is exactly the rows the queue above is carrying, plus the one
+    // whose date is being resolved, recomputed whenever any of the three
+    // changes. A flag written at enqueue and deleted by the answering handler
+    // could not survive two Applies against one row — the first answer cleared
+    // what the second was still waiting on, and `drainApply` never wrote it
+    // back, so the row read normal (and, with `enabled: !pending`, took further
+    // presses) for the whole of the second's flight. That was issue #5.
+    //
+    // All three sources are assigned whole and read here in the binding itself,
+    // which is what makes this re-evaluate at all: a `var` property does not
+    // notify on mutation.
+    readonly property var applyPending: Apply.pendingSet(root.applyCurrent, root.applyQueue, root.dueRequest)
+
+    // Still a map this file writes, and so still assigned whole on every
+    // change, never mutated — an in-place write would change the data and
+    // update no binding in the Pane. Unlike Pending, a message outlives the
+    // Apply that produced it, so there is nothing to derive it from.
     property var applyErrors: ({})
 
     // Captures, keyed one per capture rather than by Entry id — a `create` has
@@ -243,7 +257,7 @@ Item {
         }
     }
 
-    // Assign, never mutate: see the note on applyPending.
+    // Assign, never mutate: see the note on applyErrors.
     function _setApplyFlag(map, key, value) {
         var next = {};
         for (var existing in map) {
@@ -269,7 +283,7 @@ Item {
         return "";
     }
 
-    // Assign, never mutate — the same rule `applyPending` follows, for the same
+    // Assign, never mutate — the same rule `applyErrors` follows, for the same
     // reason. `record` of null removes the capture.
     function _putCapture(key, record) {
         var next = {};
@@ -382,7 +396,9 @@ Item {
             return;
         }
         root.clearApplyError(taskId);
-        root.applyPending = root._setApplyFlag(root.applyPending, taskId, true);
+        // The assignment below is what marks the row Pending: `applyPending` is
+        // derived from `dueRequest` among others, so the row stays muted across
+        // both steps instead of blinking back to normal between them.
         root.dueRequest = { list: listId, task: taskId, expr: expr, epoch: root.epoch };
         // Assigned, not bound. A `command` binding on `dueRequest` and this
         // function are both dependents of the same property, and issue #2 is the
@@ -445,8 +461,10 @@ Item {
             root._markCapturePending(entry.key);
         } else {
             root.clearApplyError(entry.key);
-            root.applyPending = root._setApplyFlag(root.applyPending, entry.key, true);
         }
+        // A row op's Pending needs no write of its own: `applyPending` is
+        // derived from this queue, so the push below is what raises it — and
+        // keeps it raised while anything else here names the same row.
         root.applyQueue = root.applyQueue.concat([entry]);
         root.drainApply();
     }
@@ -798,11 +816,14 @@ Item {
         deadlineMs: 10000
         onFinishedWith: function (out, err, code, tooLarge) {
             var asked = root.dueRequest;
+            // Clearing this drops the row out of `applyPending` unless an Apply
+            // still names it. On the success path below the row is put straight
+            // back by the `set_due` this enqueues; both happen in one JS turn,
+            // with no frame between them for the gap to be rendered in.
             root.dueRequest = null;
             if (asked === null) {
                 return;
             }
-            root.applyPending = root._setApplyFlag(root.applyPending, asked.task, undefined);
             if (asked.epoch !== root.epoch) {
                 console.warn("oxidone: due answered from a binary we no longer use");
                 root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(1));
@@ -839,19 +860,18 @@ Item {
         deadlineMs: 10000
         onFinishedWith: function (out, err, code, tooLarge) {
             var sent = root.applyCurrent;
+            // This is also what stops a row op waiting: it leaves
+            // `applyPending`, unless something still queued names the same row,
+            // in which case the row stays Pending until that one answers too. A
+            // capture is not in that set at all — its record may still have the
+            // second half of a chain to run, and is settled where the chain is,
+            // below.
             root.applyCurrent = null;
             applyProc.stdinPayload = "";
             if (sent === null) {
                 root.drainApply();
                 return;
             }
-            // A row op is done waiting the moment its answer lands. A capture
-            // may still have the second half of its chain to run, so its record
-            // is settled where the chain is, below.
-            if (!sent.capture) {
-                root.applyPending = root._setApplyFlag(root.applyPending, sent.key, undefined);
-            }
-
             if (root.applyEpoch !== root.epoch) {
                 // Started against a different binary. Whatever this answered, it
                 // is not a word from the binary we talk to now: fold nothing and
