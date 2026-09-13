@@ -217,6 +217,15 @@ enters the installable tree: `omarchy plugin add` clones the whole repository an
 is no packaging step that could exclude a committed file. One live check at the
 end, against a throwaway task.
 
+Where a question is about QML itself rather than about a pure function — binding
+order, an epoch guard, what the Service does when the binary under it changes —
+`test/qml/harness.qml` runs the real Service under `qs`, offscreen and without a
+Wayland session. Its config folder, and the fake binaries it swaps the Service
+between, are written to a temp directory as the test runs rather than committed:
+`qs` will not import QML from outside the folder it is given, the marketplace
+validator refuses symlinks inside a plugin, and by the rule above a committed
+fake would be an executable sitting on every user's machine.
+
 **The Indicator does not move while an Apply is in flight.** It is a glance
 surface; a sub-second Pending state would flicker at the edge of vision. The
 count moves when the Echo lands.
