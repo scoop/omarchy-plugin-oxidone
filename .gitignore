@@ -1,3 +1,10 @@
 node_modules/
 .validate/
 test/fake-oxidone
+
+# Agent instruction files, kept untracked on purpose: `omarchy plugin add` clones this
+# repository into ~/.config/omarchy/plugins/, where people run coding agents against their
+# own desktop config. A committed CLAUDE.md or AGENTS.md would become standing instructions
+# in a stranger's environment. The house rules live in docs/house-rules.md instead.
+CLAUDE.md
+AGENTS.md

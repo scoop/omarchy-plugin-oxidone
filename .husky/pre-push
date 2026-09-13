@@ -1,0 +1,3 @@
+# The gate CI runs, run before the push instead of after it. One script on both
+# sides is what keeps them from drifting apart.
+bun run verify

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+
+  // Every module under src/ is loaded from QML (`import "src/state.js" as State`),
+  // a wiring fallow cannot see because it does not parse .qml. Without this, each
+  // export consumed only from a .qml file reads as dead and the gate would coach an
+  // agent into deleting live code. Grep the .qml files before calling an export dead.
+  "dynamicallyLoaded": ["src/**/*.js"],
+
+  "rules": {
+    // Five flat modules with no layering to enforce, and no rule packs authored.
+    // Turned off deliberately so their zero counts are an answer rather than the
+    // silence of a detector that never ran.
+    "boundary-violation": "off",
+    "policy-violation": "off",
+  },
+
+  "duplicates": {
+    // src/today.js: parseToday and parseList share their bounds and entry checks
+    // and differ only in the required field, which the comment between them says
+    // out loud. Reviewed and kept parallel; the key expires if either side changes.
+    "ignoredClones": ["dup:6f87acd9:2"],
+  },
+}
