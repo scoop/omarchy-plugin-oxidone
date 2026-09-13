@@ -211,8 +211,11 @@ a keystroke can change.
 
 **Testing.** A fake oxidone under `test/` answers `apply` from a fixture and
 returns any exit on demand, so every failure branch is reachable without a
-network. It never enters the installable tree. One live check at the end, against
-a throwaway task.
+network. It is untracked and written by `test/make-fixture.js`, so it never
+enters the installable tree: `omarchy plugin add` clones the whole repository and
+`omarchy plugin update` needs that checkout to stay a git working tree, so there
+is no packaging step that could exclude a committed file. One live check at the
+end, against a throwaway task.
 
 **The Indicator does not move while an Apply is in flight.** It is a glance
 surface; a sub-second Pending state would flicker at the edge of vision. The

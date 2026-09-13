@@ -5,6 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "test": "bun test",
+    "fixture": "bun test/make-fixture.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "validate": "rm -rf .validate && mkdir -p .validate && git archive HEAD | tar -xf - -C .validate && /usr/share/omarchy/bin/omarchy-plugin-validate .validate && rm -rf .validate",
