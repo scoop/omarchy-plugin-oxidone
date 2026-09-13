@@ -367,14 +367,15 @@ Item {
                     root.outstanding = Today.outstandingCount(payload);
                     root.overdue = Today.hasOverdue(payload);
                     root.payload = payload;
+                    // A poll supersedes only the failures it actually describes: an
+                    // Entry absent from this answer (a List-scope row with no Today
+                    // date, say) keeps its message until something speaks to that row.
+                    // An answer too old to render is too old to erase a message with.
+                    root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
                 }
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
-                // A poll supersedes only the failures it actually describes: an
-                // Entry absent from this answer (a List-scope row with no Today
-                // date, say) keeps its message until something speaks to that row.
-                root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
                 root.scheduleNext(0);
             } catch (error) {
                 // A clean exit with an answer we cannot read is our bug, not
