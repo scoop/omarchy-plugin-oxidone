@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "types": ["bun"],
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    // strict flags every untyped parameter in src/ and test/ as an implicit any and
+    // cannot narrow the row union in rows.test.js. Off, checkJs still catches the
+    // defects worth a gate here — wrong arity, misspelled properties, bad call types.
+    "strict": false,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true
+  },
+  "include": ["src/**/*.js", "test/**/*.js", "*.js"]
+}

@@ -2,6 +2,9 @@
 
 An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://github.com/erwins-enkel/oxidone). It is a _thin client over the oxidone binary_, never a second Google Tasks client: oxidone owns Google, the credentials, and the domain.
 
+Changing something here? [docs/house-rules.md](docs/house-rules.md) has the house rules and
+the gate to run before you claim it works.
+
 ## Imported language
 
 The task domain is oxidone's and is not restated here. **List**, **Task**, **Subtask**, **Entry type**, **Signifier**, **Notes**, **Display title**, **Due date**, **Today**, **Migrate**, **Status**, and the four exits are defined in [oxidone's CONTEXT.md](https://github.com/erwins-enkel/oxidone/blob/main/CONTEXT.md) and mean exactly what they mean there. A definition restated in two glossaries is a definition free to drift — in particular **Today**, whose membership the Indicator's count must equal.
