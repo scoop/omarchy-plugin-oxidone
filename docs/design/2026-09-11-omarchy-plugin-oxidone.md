@@ -217,3 +217,16 @@ a throwaway task.
 **The Indicator does not move while an Apply is in flight.** It is a glance
 surface; a sub-second Pending state would flicker at the edge of vision. The
 count moves when the Echo lands.
+
+**Colour describes the entry; the right edge describes the row.** The pane has
+two tokens to say things with — `muted` and `urgent` — and slice 3 arrived with
+three meanings for them: overdue, armed, failed. Handing all three to the title
+made an overdue row that had just failed uniformly urgent, with nothing
+separating "this is late" from "this did not go through"
+([#6](https://github.com/scoop/omarchy-plugin-oxidone/issues/6)). So the title
+answers only about the Entry — `muted` when Completed or Pending, `urgent` when
+overdue — and Armed and Failed, which are states of the row rather than facts
+about the Entry, are carried at the right edge by the prompt and the message
+that already say what they are in words. A failure is quieter for it, and
+correctly so: an Entry that is late is still late while its last change is
+being retried.

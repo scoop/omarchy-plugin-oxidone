@@ -594,10 +594,19 @@ Item {
                             id: titleText
                             width: parent.width - Style.space(10) - Style.spacing.xs * 2 - notesText.width
                             text: row.title
-                            // Pending is the same muted the Snapshot wears when
-                            // it cannot be trusted, and means the same thing: we
-                            // do not know yet.
-                            color: entrySurface.pending ? Color.muted : (entrySurface.armed || entrySurface.failure !== "" ? Color.urgent : (row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)))
+                            // The title's colour describes the entry, and only
+                            // the entry: muted when it is Completed or Pending —
+                            // the same muted the Snapshot wears when it cannot
+                            // be trusted, meaning the same thing, we do not know
+                            // yet — and urgent when it is overdue. Armed and
+                            // failed are states of the row, not of the entry,
+                            // and say so at the right edge in their own words.
+                            // They used to claim this glyph too, which left an
+                            // overdue row that had just failed entirely urgent
+                            // with nothing separating "this is late" from "this
+                            // did not go through": with two tokens and three
+                            // meanings, colour carried none of them.
+                            color: entrySurface.pending ? Color.muted : (row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text))
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.body
                             font.strikeout: row.completed
