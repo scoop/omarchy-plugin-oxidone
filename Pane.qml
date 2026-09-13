@@ -26,6 +26,10 @@ Item {
 
     function open(payloadJson) {
         root.opened = true;
+        // A pane that has just been summoned has nothing armed, by
+        // definition — whatever the shell's toggle path did before this
+        // call, a stale arm must not carry into the newly-opened pane.
+        root.armedId = "";
         // Populated ahead of being looked at: by the time anyone opens the
         // selector, Today is already showing, so there is no spinner state
         // to design for.
@@ -370,6 +374,10 @@ Item {
                         root._enterLatch = false;
                         return;
                     }
+                    // Space is a key like any other: it is a change of mind
+                    // when a row is armed. Enter needs no handling here —
+                    // openTui() calls close(), which already clears the arm.
+                    root.armedId = "";
                     root.toggleComplete();
                 }
                 onTextKey: function (text) {
@@ -540,10 +548,14 @@ Item {
                         // otherwise hand the cursor to whatever slid beneath it.
                         onPositionChanged: function (mouse) {
                             if (pointerGate.moved(this, mouse)) {
+                                // The row you were about to delete is not the
+                                // row under the pointer any more.
+                                root.armedId = "";
                                 root.selectedId = row.id;
                             }
                         }
                         onClicked: {
+                            root.armedId = "";
                             root.selectedId = row.id;
                             root.openTui();
                         }
