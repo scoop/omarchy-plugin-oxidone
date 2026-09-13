@@ -98,9 +98,9 @@ apply, so there is nothing to reconcile and nothing to revert.
 2. **Pane** — overlay, Today and List scopes, rows, keyboard navigation. Reads only.
    _Shipped._
 3. **Writes** — `complete`, `uncomplete`, `migrate`, `delete`; Echo-driven; the
-   Apply queue and the failure surface. _Designed._
-4. **Text** — `create`, `retitle`, `set_due`, `clear_due`, and the inline editor
-   all four need.
+   Apply queue and the failure surface. _Shipped._
+4. **Text** — `create`, `retitle`, `set_due`, `clear_due`, and the editor all
+   four need. _Shipped._
 
 ## Slice 2 decisions
 
@@ -231,3 +231,77 @@ run on — so, like `bun run validate`, it is a gate the local run enforces.
 **The Indicator does not move while an Apply is in flight.** It is a glance
 surface; a sub-second Pending state would flicker at the edge of vision. The
 count moves when the Echo lands.
+
+## Slice 4 decisions
+
+Settled with the operator over three question rounds, against oxidone's
+`docs/json-cli.md` and its TUI's own `capture_target`.
+
+**Capture mirrors the TUI, and costs two Applies in Today.** `apply create`
+takes `list` and `title` and no due date, but oxidone's own capture dates a
+Today capture _today_ — "so the entry stays on the page it was created on"; its
+other panes leave one undated. Today scope therefore sends `create` into
+`default_list` and then `set_due` with the Snapshot's own `today`. A List
+capture stays one Apply, undated. This is the plugin's first multi-Apply
+operation, and it can half-succeed: when it does, the strip says the entry was
+created but not dated, and names the List it is in. No retry and no cleanup —
+the entry is real, and a retry policy nothing else in the queue has would buy
+less than one honest sentence.
+
+**Every capture carries its own key, in its own store.** The strip stays open
+for a run, so two captures can be in flight at once. A shared key would let the
+second capture's enqueue clear the first's message, and the first answer clear
+both rows' Pending. `applyPending` and `applyErrors` stay keyed by Entry id, for
+row ops only: a capture has no Entry id, and a sentinel parked in `applyErrors`
+would never be cleared at all, since `retainErrorsAbsentFrom` drops only keys
+that come back as entry ids in a fresh answer. Captures live in a `captures` map
+of their own, each failure named by the title it carried, the last five kept,
+cleared when the strip closes.
+
+**The due field speaks oxidone's whole vocabulary, resolved on commit.**
+`apply set_due` takes ISO and only ISO; `oxidone json due <expr>` — pure, no
+network, no credentials, refused before anything authorizes — is what turns
+`tomorrow` or `+3d` into one, and it exists so a caller need not write a second
+date parser. No live preview: a process per keystroke-pause is a debounce, a
+stale preview and a second failure mode, for a date the commit is about to name
+anyway. **An empty field commits `clear_due`**, so one key reaches both ops
+while they stay the two separate commands the contract requires.
+
+**The retitle editor seeds the raw `display_title`.** `Rows.plain` replaces
+control characters and truncates at 200 with an ellipsis — rendering rules, and
+saving their output back as the new name would silently shorten a long title and
+flatten a mixed-direction one. This is the one unsanitized Google string in the
+Pane, and it is safe to be: a `TextInput` renders no markup, has no `textFormat`
+to get wrong, and the field is clipped, so a hostile title can disrupt its own
+field and nothing else.
+
+**Today still has one definition.** Every op that changes a date folds its Echo
+— honest, it is what the server said — and then re-reads Today, so oxidone
+answers membership and ordering. Only two derivations stay local, both from what
+the op does rather than from a `due <= today` test: `clear_due` leaves Today
+because an undated entry is never in it, and a Today capture's chained `set_due`
+enters Today because the date it sets is the Snapshot's own. The re-read is the
+backstop that makes either self-correcting inside one read.
+
+**One editor strip, under the selector.** One field, three jobs, one geometry
+and one `blocked` binding — and the row being edited stays visible and cursored
+below it rather than hidden behind it. `blocked` follows `editorMode` rather
+than the field's focus, so a click that takes focus elsewhere cannot hand `x`
+back to a row while a rename is half-typed above it.
+
+**Delete is still the only gated op.** Every text op is redoable by doing it
+again, and the editor's Esc is its own gate: nothing is sent until Enter.
+
+**The fixture learned to fail one op at a time.** A Today capture is two
+Applies, so the half-capture branch is only reachable when the `create` lands
+and the `set_due` behind it does not — which a failure aimed at every op cannot
+produce. `test/make-fixture.js` gained `~/.fake-oxidone-fail-op` beside the
+exit-code channel, and a `json due` subcommand. Its template stays ASCII and
+backtick-free, and writes a literal `${` as an interpolated `"$"`, for the
+reasons its own header gives.
+
+**One user-typed string reaches argv**, the due expression, because `json due`
+takes it as an argument and there is no other route. Titles and ids stay on
+stdin. A date phrase is not a task title, the process lives milliseconds, and
+oxidone's `json` arg parsing joins everything after the subcommand verbatim, so
+a leading `-` is data rather than a flag.

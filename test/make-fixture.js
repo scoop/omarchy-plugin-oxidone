@@ -31,9 +31,23 @@ if [[ -r "${"$"}{HOME}/.fake-oxidone-exit" ]]; then
   fail_with="$(head -c 8 "${"$"}{HOME}/.fake-oxidone-exit" | tr -dc '0-9-')"
 fi
 
+# Which op the failure above applies to. Empty means every one of them. A
+# Today capture is two Applies, and the half-capture branch is only reachable
+# when the create lands and the set_due behind it does not, which needs a
+# failure aimed at one op rather than at all of them.
+fail_op=""
+if [[ -r "${"$"}{HOME}/.fake-oxidone-fail-op" ]]; then
+  fail_op="$(head -c 16 "${"$"}{HOME}/.fake-oxidone-fail-op" | tr -dc 'a-z_')"
+fi
+
 entry() {
-  printf '{"id":"%s","list":"L1","parent":null,"title":"%s","display_title":"%s","type":"task","has_notes":false,"due":"%s","status":"%s","completed_at":null,"position":"%s"}' \
-    "$1" "$2" "$2" "$3" "$4" "$5"
+  # due is a date or null on the wire, never an empty string, and the
+  # difference matters: "" sorts before any date, so an undated entry emitted
+  # that way would read as overdue in every consumer of this fixture.
+  local due='null'
+  [[ -n $3 ]] && due="\"$3\""
+  printf '{"id":"%s","list":"L1","parent":null,"title":"%s","display_title":"%s","type":"task","has_notes":false,"due":%s,"status":"%s","completed_at":null,"position":"%s"}' \
+    "$1" "$2" "$2" "$due" "$4" "$5"
 }
 
 case "${"$"}{1:-}" in
@@ -56,7 +70,30 @@ case "${"$"}{2:-}" in
     exit 0
     ;;
   lists)
-    printf '{"lists":[{"id":"L1","title":"Reminders"},{"id":"L2","title":"Work"}]}\n'
+    printf '{"lists":[{"id":"L1","title":"Reminders"},{"id":"L2","title":"Work"}],"default_list":"L1"}\n'
+    exit 0
+    ;;
+  due)
+    # The read the due editor resolves through. Pure in the real binary too, so
+    # a failure here is only ever the one asked for.
+    if [[ -n $fail_with && ( -z $fail_op || $fail_op == "due" ) ]]; then
+      printf '{"error":{"kind":"invalid_due","message":"fake: asked to fail with %s"}}\n' "$fail_with" >&2
+      exit "$fail_with"
+    fi
+    expr="${"$"}{*:3}"
+    case "$expr" in
+      # Anything that is not one of these is not a date, exactly as exit 2
+      # invalid_due says of the real vocabulary's misses.
+      today)             printf '{"input":"%s","due":"2026-09-12"}\n' "$expr" ;;
+      tomorrow|+1d)      printf '{"input":"%s","due":"2026-09-13"}\n' "$expr" ;;
+      +3d)               printf '{"input":"%s","due":"2026-09-15"}\n' "$expr" ;;
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+                         printf '{"input":"%s","due":"%s"}\n' "$expr" "$expr" ;;
+      *)
+        printf '{"error":{"kind":"invalid_due","message":"fake: not a date"}}\n' >&2
+        exit 2
+        ;;
+    esac
     exit 0
     ;;
   tasks)
@@ -66,19 +103,28 @@ case "${"$"}{2:-}" in
     ;;
   apply)
     command="$(head -c 4096)"
-    if [[ -n $fail_with ]]; then
+    op="$(printf '%s' "$command" | sed -n 's/.*"op":"\([a-z_]*\)".*/\1/p')"
+    if [[ -n $fail_with && ( -z $fail_op || $fail_op == "$op" ) ]]; then
       printf '{"error":{"kind":"fake","message":"asked to fail with %s"}}\n' "$fail_with" >&2
       exit "$fail_with"
     fi
-    op="$(printf '%s' "$command" | sed -n 's/.*"op":"\([a-z_]*\)".*/\1/p')"
     task="$(printf '%s' "$command" | sed -n 's/.*"task":"\([^"]*\)".*/\1/p')"
+    title="$(printf '%s' "$command" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')"
+    due="$(printf '%s' "$command" | sed -n 's/.*"due":"\([^"]*\)".*/\1/p')"
     echoed() { printf '{"entry":%s}\n' "$(entry "$1" 'Send the signed contract back' "$2" "$3" 01)"; }
+    titled() { printf '{"entry":%s}\n' "$(entry "$1" "$2" "$3" needsAction 01)"; }
     case "$op" in
       complete)   echoed "$task" 2026-09-09 completed ;;
       uncomplete) echoed "$task" 2026-09-09 needsAction ;;
       # Migrate always dates past today, which is what makes the row leave Today.
       migrate)    echoed "$task" 2026-09-13 needsAction ;;
       delete)     printf '{"deleted":{"list":"L1","id":"%s"}}\n' "$task" ;;
+      # A created entry is undated, which is why a Today capture chains a
+      # set_due behind it. The id is fixed so the chain is followable.
+      create)     titled new "$title" "" ;;
+      retitle)    titled "$task" "$title" 2026-09-09 ;;
+      set_due)    titled "$task" 'Send the signed contract back' "$due" ;;
+      clear_due)  titled "$task" 'Send the signed contract back' "" ;;
       *)
         printf '{"error":{"kind":"usage","message":"fake: unknown op"}}\n' >&2
         exit 2

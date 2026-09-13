@@ -116,9 +116,31 @@ test("an entry row carries what the delegate needs and nothing more", () => {
     "kind",
     "list",
     "overdue",
+    "rawTitle",
     "signifier",
     "title",
   ]);
+});
+
+test("rawTitle is the title as oxidone gave it, drawn title or not", () => {
+  const long = "x".repeat(MAX_TITLE + 40);
+  const row = buildRows(payload([entry({ display_title: long })]))[1];
+  // `title` is elided so a row stays a row; `rawTitle` is what a rename must
+  // send back, and an elision saved as the new name is a title destroyed.
+  expect(row.title.endsWith("\u2026")).toBe(true);
+  expect(row.title.length).toBe(MAX_TITLE);
+  expect(row.rawTitle).toBe(long);
+});
+
+test("rawTitle keeps the marks plain() has to replace to render safely", () => {
+  const bidi = "\u202ekcatta\u202c";
+  const row = buildRows(payload([entry({ display_title: bidi })]))[1];
+  expect(row.title).not.toBe(bidi);
+  expect(row.rawTitle).toBe(bidi);
+});
+
+test("rawTitle is a string even when the entry has no display title", () => {
+  expect(buildRows(payload([entry({ display_title: null })]))[1].rawTitle).toBe("");
 });
 
 test("only entry rows are selectable", () => {

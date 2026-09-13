@@ -4,6 +4,7 @@ import "src/today.js" as Today
 import "src/state.js" as State
 import "src/version.js" as Version
 import "src/apply.js" as Apply
+import "src/rows.js" as Rows
 
 // Owns the poll and the state derived from it.
 //
@@ -45,6 +46,12 @@ Item {
     property var listPayload: null
     property string listId: ""
 
+    // The concrete id `@default` resolves to, from the same `json lists` answer.
+    // Today is no List, so a capture made there needs a target, and this is the
+    // one oxidone's own TUI uses for exactly that. Empty until `lists` has been
+    // read, or when the answer named a List we did not keep.
+    property string defaultList: ""
+
     // The list the running request was actually started for. `listId` is what is
     // wanted; this is what was asked for. They differ exactly while a request is
     // in flight and the scope has moved on.
@@ -73,9 +80,25 @@ Item {
     property var applyPending: ({})
     property var applyErrors: ({})
 
+    // Captures, keyed one per capture rather than by Entry id — a `create` has
+    // no Entry to be keyed by, and the Pane's strip stays open for a run, so two
+    // can be in flight at once. A shared key would let the second capture's
+    // enqueue clear the first's message and the first answer clear both rows'
+    // Pending. Each value is { title, pending, message, seq }.
+    //
+    // Deliberately not `applyErrors`: that map is pruned by comparing its keys
+    // against the entry ids in a fresh answer, and a capture key is never an
+    // entry id, so a failure parked there would never be cleared at all.
+    property var captures: ({})
+    property int captureSeq: 0
+
     // Past any burst a person can type, small enough that "queue full" is a
     // path that can actually be reached and tested.
     readonly property int applyQueueMax: 32
+
+    // How many settled capture failures are kept. A run against a dead network
+    // must not grow this without end, and five is more than a strip can show.
+    readonly property int captureFailureMax: 5
 
     readonly property int applyQueueDepth: applyQueue.length + (applyCurrent !== null ? 1 : 0)
 
@@ -126,6 +149,16 @@ Item {
     // as the scope stays put — longer than Today's one poll cycle.
     property int tasksApplyGeneration: 0
 
+    // A date changed, and only oxidone can say what that did to Today's
+    // membership and order. Set by `settleToday`, cleared by the poll it asks
+    // for — so a request made while a poll is already in flight is honoured
+    // after it rather than dropped, that poll being older than the fold.
+    property bool todayRepollWanted: false
+
+    // The `json due` resolution in flight: { list, task, expr, epoch }. One at a
+    // time, because one editor is open at a time.
+    property var dueRequest: null
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
@@ -161,8 +194,24 @@ Item {
         if (!todayProc.running) {
             root.todayEpoch = root.epoch;
             root.todayApplyGeneration = root.applyGeneration;
+            root.todayRepollWanted = false;
             todayProc.start();
+            return;
         }
+    }
+
+    /**
+     * Ask oxidone what a date change did to Today.
+     *
+     * `set_due` may move an Entry out of Today or leave it in, and only the
+     * `due <= today` rule decides — the rule oxidone#137 made oxidone's alone.
+     * Rather than keep a second copy of it here, fold what the server said and
+     * then read Today again. A no-op while a poll is already running; the flag
+     * is what gets it re-asked once that one lands.
+     */
+    function settleToday() {
+        root.todayRepollWanted = true;
+        root.refresh();
     }
 
     // On-demand, not polled: the Pane calls these when it opens or when the
@@ -208,6 +257,142 @@ Item {
         return next;
     }
 
+    // The title a List carries, for the one sentence that has to name one.
+    // Sanitized on the way out: it is a Google string, and this is the only
+    // route by which one reaches a message rather than a row.
+    function listTitleFor(listId) {
+        for (var i = 0; i < root.lists.length; i++) {
+            if (root.lists[i].id === listId) {
+                return Rows.plain(root.lists[i].title, 40);
+            }
+        }
+        return "";
+    }
+
+    // Assign, never mutate — the same rule `applyPending` follows, for the same
+    // reason. `record` of null removes the capture.
+    function _putCapture(key, record) {
+        var next = {};
+        for (var existing in root.captures) {
+            next[existing] = root.captures[existing];
+        }
+        if (record === null) {
+            delete next[key];
+        } else {
+            next[key] = record;
+        }
+        root.captures = next;
+    }
+
+    // Keep the newest failures and drop the oldest, by the sequence each capture
+    // was minted with. A capture still in flight is never dropped: it has an
+    // answer coming that needs somewhere to land.
+    function _pruneCaptureFailures() {
+        var failed = [];
+        for (var key in root.captures) {
+            var record = root.captures[key];
+            if (!record.pending && record.message !== "") {
+                failed.push({ key: key, seq: record.seq });
+            }
+        }
+        if (failed.length <= root.captureFailureMax) {
+            return;
+        }
+        failed.sort(function (a, b) {
+            return a.seq - b.seq;
+        });
+        var next = {};
+        for (var existing in root.captures) {
+            next[existing] = root.captures[existing];
+        }
+        for (var i = 0; i < failed.length - root.captureFailureMax; i++) {
+            delete next[failed[i].key];
+        }
+        root.captures = next;
+    }
+
+    /** Drop every capture that has finished. The Pane calls this when its strip closes. */
+    function clearSettledCaptures() {
+        var next = {};
+        for (var key in root.captures) {
+            if (root.captures[key].pending) {
+                next[key] = root.captures[key];
+            }
+        }
+        root.captures = next;
+    }
+
+    function _settleCapture(key) {
+        root._putCapture(key, null);
+    }
+
+    // One place both stores are written from, so a queue entry's `capture` flag
+    // is the only thing that decides which one a message lands in.
+    function _reportFailure(entry, message) {
+        if (!entry.capture) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, entry.key, message);
+            return;
+        }
+        var record = root.captures[entry.key];
+        root._putCapture(entry.key, {
+            title: record ? record.title : "",
+            pending: false,
+            message: message,
+            seq: record ? record.seq : root.captureSeq
+        });
+        root._pruneCaptureFailures();
+    }
+
+    /**
+     * Capture one new entry into `listId`.
+     *
+     * `dateToday` mirrors what oxidone's TUI does on its own Today pane: a
+     * dateless capture there is dated today, so the entry stays on the page it
+     * was created on. `apply create` has no `due` field, so that costs a second
+     * Apply — chained off the first's Echo, under this capture's own key, so the
+     * strip stays Pending across both and a failure between them is reported as
+     * the half-capture it is.
+     */
+    function capture(title, listId, dateToday) {
+        root.captureSeq += 1;
+        var key = Apply.captureKey(root.captureSeq);
+        root._putCapture(key, { title: title, pending: true, message: "", seq: root.captureSeq });
+        root.applyOp("create", { list: listId, title: title }, {
+            capture: true,
+            key: key,
+            chain: dateToday ? "dueToday" : ""
+        });
+    }
+
+    /**
+     * Resolve a date phrase, then set it.
+     *
+     * `apply set_due` takes ISO and only ISO; `json due` is what turns
+     * `tomorrow` or `+3d` into one — pure, no network, no credentials. The row
+     * is marked Pending here rather than at the Apply, so it stays muted across
+     * both steps instead of blinking back to normal in between.
+     */
+    function resolveAndSetDue(listId, taskId, expr) {
+        if (!versionOk) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
+            return;
+        }
+        if (root.dueRequest !== null || dueProc.running) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "one date at a time");
+            return;
+        }
+        root.clearApplyError(taskId);
+        root.applyPending = root._setApplyFlag(root.applyPending, taskId, true);
+        root.dueRequest = { list: listId, task: taskId, expr: expr, epoch: root.epoch };
+        // Assigned, not bound. A `command` binding on `dueRequest` and this
+        // function are both dependents of the same property, and issue #2 is the
+        // record of what happens when the order between them is assumed: the
+        // process ran against the value the binding had not caught up to yet.
+        // One read of the expression, into the argv and the request together.
+        dueProc.command = [root.resolvedBinary, "json", "due", expr];
+        dueProc.start();
+    }
+
     function clearApplyError(entryId) {
         if (root.applyErrors[entryId] !== undefined) {
             root.applyErrors = root._setApplyFlag(root.applyErrors, entryId, undefined);
@@ -215,34 +400,73 @@ Item {
     }
 
     /**
-     * Enqueue one Apply. `op` is one of Apply.OPS.
+     * Enqueue one Apply. `op` is one of Apply.OPS, `params` exactly the fields
+     * that op's row in the contract names.
+     *
+     * `options.capture` decides which store this entry's Pending and message
+     * live in: an Entry-keyed one for a row op, the capture-keyed one for a
+     * `create` and for the `set_due` chained off it, which has no row of its own
+     * on screen to carry either. `options.chain` is "dueToday" on a create that
+     * must be dated, "captured" on the set_due that answers one.
      *
      * Nothing is predicted here: the row is marked Pending and the Snapshot is
      * left exactly as it was until the Echo arrives.
      */
-    function applyOp(op, listId, taskId) {
+    function applyOp(op, params, options) {
+        var opts = options || {};
+        var entry = {
+            op: op,
+            params: params,
+            key: opts.capture === true ? opts.key : params.task,
+            capture: opts.capture === true,
+            chain: opts.chain || "",
+            command: ""
+        };
         if (!versionOk) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
+            root._reportFailure(entry, root._chainAware(entry, "no usable oxidone"));
             return;
         }
         if (root.applyQueueDepth >= root.applyQueueMax) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "too many changes at once");
+            root._reportFailure(entry, root._chainAware(entry, "too many changes at once"));
             return;
         }
-        var command;
         try {
-            command = Apply.buildCommand(op, listId, taskId);
+            entry.command = Apply.buildCommand(op, params);
         } catch (error) {
-            // Our bug, not oxidone's refusal: a row without a list id, or an op
-            // this release does not send.
+            // Our bug, not oxidone's refusal: a row without a list id, an op
+            // this release does not send, or a field that op does not take.
             console.warn("oxidone: refusing to send", op, "-", error.message);
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, Apply.messageForExit(1));
+            root._reportFailure(entry, root._chainAware(entry, Apply.messageForExit(1)));
             return;
         }
-        root.clearApplyError(taskId);
-        root.applyPending = root._setApplyFlag(root.applyPending, taskId, true);
-        root.applyQueue = root.applyQueue.concat([{ op: op, list: listId, task: taskId, command: command }]);
+        if (entry.capture) {
+            // The capture's own record was made by `capture()` and is already
+            // Pending; the chained set_due inherits it and keeps it that way.
+            root._markCapturePending(entry.key);
+        } else {
+            root.clearApplyError(entry.key);
+            root.applyPending = root._setApplyFlag(root.applyPending, entry.key, true);
+        }
+        root.applyQueue = root.applyQueue.concat([entry]);
         root.drainApply();
+    }
+
+    // A failure on the second half of a capture is not "could not reach Google"
+    // — the entry exists by then, and saying only that would leave someone
+    // looking for it in a Today it is not in.
+    function _chainAware(entry, message) {
+        if (entry.chain === "captured") {
+            return Apply.halfCaptureMessage(root.listTitleFor(entry.params.list));
+        }
+        return message;
+    }
+
+    function _markCapturePending(key) {
+        var record = root.captures[key];
+        if (record === undefined) {
+            return;
+        }
+        root._putCapture(key, { title: record.title, pending: true, message: "", seq: record.seq });
     }
 
     function drainApply() {
@@ -289,6 +513,52 @@ Item {
         root.applyGeneration += 1;
     }
 
+    // An Entry the Snapshot does not carry yet.
+    //
+    // `intoToday` is derived from what the op did, never from a `due <= today`
+    // test here: a `create` is undated and so is in no Today at all, while the
+    // `set_due` a Today capture chains sets the Snapshot's own date, putting the
+    // Entry in Today by construction. The `settleToday` that follows is what
+    // makes either reading self-correcting inside one read.
+    function _foldInsert(echo, intoToday) {
+        if (intoToday && root.payload !== null && root.payload !== undefined) {
+            var today = {
+                today: root.payload.today,
+                entries: Apply.insertEntry(root.payload.entries, echo)
+            };
+            root.payload = today;
+            root.outstanding = Today.outstandingCount(today);
+            root.overdue = Today.hasOverdue(today);
+        }
+        // Only into the List the Entry is actually in: `patchEntries` can be
+        // handed any Echo because it matches by id, but an insert would put one
+        // List's new Entry under another List's name.
+        if (root.listPayload !== null && root.listPayload !== undefined && root.listPayload.list === echo.list) {
+            root.listPayload = {
+                list: root.listPayload.list,
+                entries: Apply.insertEntry(root.listPayload.entries, echo)
+            };
+        }
+        root.applyGeneration += 1;
+    }
+
+    // The second half of a Today capture: date the Entry the `create` just made
+    // with the Snapshot's own `today`, so it stays on the page it was typed on.
+    function _chainCaptureDate(sent, echo) {
+        if (root.payload === null || root.payload === undefined || typeof root.payload.today !== "string") {
+            // No Today Snapshot to take a date from. The Entry is real and
+            // undated, which is exactly what a half-capture is.
+            console.warn("oxidone: captured with no today to date it by");
+            root._reportFailure(sent, Apply.halfCaptureMessage(root.listTitleFor(echo.list)));
+            return;
+        }
+        root.applyOp("set_due", { list: echo.list, task: echo.id, due: root.payload.today }, {
+            capture: true,
+            key: sent.key,
+            chain: "captured"
+        });
+    }
+
     function _foldDeletion(entryId) {
         if (root.payload !== null && root.payload !== undefined) {
             var today = { today: root.payload.today, entries: Apply.removeEntry(root.payload.entries, entryId) };
@@ -310,6 +580,20 @@ Item {
     function scheduleNext(code) {
         pollTimer.interval = State.nextDelaySeconds(code, root.pollIntervalSec, root.consecutiveFailures) * 1000;
         pollTimer.restart();
+        // Every path out of the poll handler ends here, which makes this the one
+        // place a deferred settle can be picked up.
+        //
+        // Cleared BEFORE the call, not by the poll it hopes to start: two of
+        // `refresh`'s paths — a non-absolute path, and a binary that failed its
+        // version check — come straight back here without starting anything, and
+        // a flag still set on the way back in calls `refresh` again, forever.
+        // That is a stack overflow inside the desktop shell. Dropping the settle
+        // when there is no usable binary to ask costs nothing: there is no
+        // answer to be had, and the next good poll is what supplies one.
+        if (root.todayRepollWanted && !todayProc.running) {
+            root.todayRepollWanted = false;
+            root.refresh();
+        }
     }
 
     // Re-check the binary whenever the person points us somewhere else.
@@ -428,15 +712,16 @@ Item {
                 return;
             }
             try {
-                var lists = Today.parseLists(out);
-                if (lists === null) {
+                var answer = Today.parseLists(out);
+                if (answer === null) {
                     // Refused whole. The selector keeps what it last knew and
                     // always keeps Today; a half-read list of lists would be a
                     // guess, and the Pane dereferences these inside a binding.
                     console.warn("oxidone: lists answer refused, keeping the selector as it was");
                     return;
                 }
-                root.lists = lists;
+                root.lists = answer.lists;
+                root.defaultList = answer.default_list;
             } catch (error) {
                 console.warn("oxidone: unreadable lists:", error.message);
             }
@@ -494,6 +779,53 @@ Item {
         }
     }
 
+    // The date Bridge. `json due` is a read — pure, no network, no credentials,
+    // and refused before anything authorizes — so it costs a process and
+    // nothing else.
+    //
+    // This is the one user-typed string this plugin puts in argv, because `json
+    // due` takes its expression as an argument and there is no other route. A
+    // date phrase is not a task title, the process lives milliseconds, and
+    // oxidone's `json` arg parsing joins everything after the subcommand
+    // verbatim, so a leading `-` is data rather than a flag. Nothing here runs
+    // through a shell.
+    BoundedProcess {
+        id: dueProc
+        // No `command` binding: `resolveAndSetDue` assigns it immediately before
+        // starting, so the argv and the request it is guarded by come from one
+        // read. See the note there.
+        maxBytes: 4096
+        deadlineMs: 10000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            var asked = root.dueRequest;
+            root.dueRequest = null;
+            if (asked === null) {
+                return;
+            }
+            root.applyPending = root._setApplyFlag(root.applyPending, asked.task, undefined);
+            if (asked.epoch !== root.epoch) {
+                console.warn("oxidone: due answered from a binary we no longer use");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(1));
+                return;
+            }
+            if (code !== 0 || tooLarge) {
+                var kind = State.errorKindOf(err);
+                console.warn("oxidone: due failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
+                // Exit 2 here is `invalid_due` and nothing else, which is worth
+                // saying: the phrase was not a date, not malformed a request.
+                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(tooLarge ? 1 : code, "due"));
+                return;
+            }
+            var due = Today.parseDue(out);
+            if (due === null) {
+                console.warn("oxidone: due answered with something unreadable");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(1));
+                return;
+            }
+            root.applyOp("set_due", { list: asked.list, task: asked.task, due: due });
+        }
+    }
+
     // The write Bridge. The command goes on stdin, never in argv: /proc's
     // cmdline is readable by every process running as this user, and these
     // carry the ids of the person's own tasks.
@@ -513,14 +845,19 @@ Item {
                 root.drainApply();
                 return;
             }
-            root.applyPending = root._setApplyFlag(root.applyPending, sent.task, undefined);
+            // A row op is done waiting the moment its answer lands. A capture
+            // may still have the second half of its chain to run, so its record
+            // is settled where the chain is, below.
+            if (!sent.capture) {
+                root.applyPending = root._setApplyFlag(root.applyPending, sent.key, undefined);
+            }
 
             if (root.applyEpoch !== root.epoch) {
                 // Started against a different binary. Whatever this answered, it
                 // is not a word from the binary we talk to now: fold nothing and
                 // say the change did not land.
                 console.warn("oxidone: apply", sent.op, "answered from a binary we no longer use");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                root._reportFailure(sent, root._chainAware(sent, Apply.messageForExit(1)));
                 root.drainApply();
                 return;
             }
@@ -530,15 +867,17 @@ Item {
                 // oxidone's own message goes here and nowhere else: it is
                 // serde's sentence or Google's, not one to show a person.
                 console.warn("oxidone: apply", sent.op, "failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
-                if (code === 6) {
+                if (code === 6 && !sent.capture) {
                     // The row is gone from both Snapshots by the time
                     // _foldDeletion returns, so there is no row left to carry a
                     // message: the Pane looks errors up by row id, and this id no
                     // longer names one. The row's disappearance is the feedback.
-                    root._foldDeletion(sent.task);
+                    // A capture has no such row — exit 6 there is a List that
+                    // went, and it needs saying.
+                    root._foldDeletion(sent.params.task);
                     root.refresh();
                 } else {
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(tooLarge ? 1 : code));
+                    root._reportFailure(sent, root._chainAware(sent, Apply.messageForExit(tooLarge ? 1 : code)));
                     if (code === 3) {
                         // A fact about the grant, not about this row.
                         root.state = State.AUTH_NEEDED;
@@ -554,15 +893,15 @@ Item {
                 var deleted = Apply.parseDeleted(out);
                 if (deleted === null) {
                     console.warn("oxidone: apply delete answered with something unreadable");
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.key, Apply.messageForExit(1));
                     root.drainApply();
                     return;
                 }
-                if (deleted.id !== sent.task || deleted.list !== sent.list) {
+                if (deleted.id !== sent.params.task || deleted.list !== sent.params.list) {
                     // Answered for an Entry we did not send. Folding this would
                     // remove the wrong row from both Snapshots — fail closed.
                     console.warn("oxidone: apply delete answered for a different entry than sent");
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.key, Apply.messageForExit(1));
                     root.drainApply();
                     return;
                 }
@@ -577,16 +916,49 @@ Item {
                 // Snapshot untouched and say the change did not land, rather
                 // than claiming a success we cannot show.
                 console.warn("oxidone: apply", sent.op, "answered with something unreadable");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                root._reportFailure(sent, root._chainAware(sent, Apply.messageForExit(1)));
                 root.drainApply();
                 return;
             }
+
+            if (sent.op === "create") {
+                // Undated, so in no Today — into the open List only, if this is
+                // the one. The chain, or the poll below, is what puts a Today
+                // capture on screen.
+                root._foldInsert(echo, false);
+                if (sent.chain === "dueToday") {
+                    root._chainCaptureDate(sent, echo);
+                } else {
+                    root._settleCapture(sent.key);
+                }
+                root.drainApply();
+                return;
+            }
+
+            if (sent.chain === "captured") {
+                // The date this set: the Snapshot's own `today`, chosen here.
+                // So the Entry is in Today by construction rather than by a
+                // local membership test, and the settle below confirms it.
+                root._foldInsert(echo, true);
+                root._settleCapture(sent.key);
+                root.settleToday();
+                root.drainApply();
+                return;
+            }
+
             // Migrate moves the due date to max(today, due) + 1 day, which is
             // always strictly after today — so a migrated Entry is always out of
-            // Today. Derived from what the op does, deliberately not from a
-            // local `due <= today` test: that would put a second definition of
-            // Today in the plugin, which is the thing oxidone#137 removed.
-            root._foldEcho(echo, sent.op === "migrate");
+            // Today. An Entry with no due date is never in Today at all, so
+            // `clear_due` leaves it too. Both derived from what the op does,
+            // deliberately not from a local `due <= today` test: that would put a
+            // second definition of Today in the plugin, which is the thing
+            // oxidone#137 removed.
+            root._foldEcho(echo, sent.op === "migrate" || sent.op === "clear_due");
+            if (sent.op === "set_due" || sent.op === "clear_due") {
+                // Where a dated Entry belongs in Today, and in what order, is the
+                // rule we do not keep a copy of. Ask.
+                root.settleToday();
+            }
             root.drainApply();
         }
     }

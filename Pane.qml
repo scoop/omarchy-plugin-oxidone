@@ -35,6 +35,10 @@ Item {
         // keeps the invariant true no matter how the previous appearance
         // ended, rather than resting on close() alone getting it right.
         scopeDropdown.close();
+        // Same reasoning for the editor: an open strip holds the key catcher
+        // blocked, so one left behind would come back deaf.
+        root.editorMode = "";
+        root.editorNotice = "";
         // Populated ahead of being looked at: by the time anyone opens the
         // selector, Today is already showing, so there is no spinner state
         // to design for.
@@ -59,6 +63,10 @@ Item {
 
     function close() {
         root.armedId = "";
+        // Before `opened` goes false: the strip's `blocked` binding follows
+        // `editorMode`, and a strip left open would hold the keys on the next
+        // appearance exactly as the scope popup once did.
+        root.closeEditor();
         // `blocked` (below) is bound to the popup, not to `opened` — closing
         // the pane while the scope selector is open leaves that binding
         // true, and it stays true across the next open() too, since nothing
@@ -129,6 +137,9 @@ Item {
         root.selectedId = "";
         // The row armed under the old scope is not on screen any more.
         root.armedId = "";
+        // Neither is the row being renamed or dated, and a capture's target
+        // just changed underneath the placeholder naming it.
+        root.closeEditor();
         if (root.scope !== "" && service) {
             service.loadList(root.scope);
         }
@@ -195,6 +206,93 @@ Item {
     // Consumed by onActivateRequested; see the comment on onReturnRequested.
     property bool _enterLatch: false
 
+    // Which text op the strip is serving: "", "capture", "retitle" or "due".
+    // One field, three jobs — one geometry, one focus path, and the row being
+    // edited stays visible and cursored below it rather than behind it.
+    property string editorMode: ""
+    property string editorTargetId: ""
+    property string editorTargetList: ""
+
+    // The strip's own sentence, for a refusal that never became an Apply: no
+    // default list to capture into, an empty title. Not an Entry's failure, so
+    // not `applyErrors`.
+    property string editorNotice: ""
+
+    readonly property string editorLabel: {
+        if (root.editorMode === "capture") {
+            return "New";
+        }
+        if (root.editorMode === "retitle") {
+            return "Rename";
+        }
+        return "Due";
+    }
+
+    readonly property string editorPlaceholder: {
+        if (root.editorMode === "capture") {
+            // Today is no List, so a capture there lands somewhere the pane does
+            // not otherwise name. In a List the selector directly above already
+            // says where, and repeating it would be noise.
+            var where = root.scope === "" ? root.captureListTitle : "";
+            return where !== "" ? "New entry in " + where + "…" : "New entry…";
+        }
+        if (root.editorMode === "retitle") {
+            return "Title";
+        }
+        return "tomorrow, +3d, 25, or a date — empty clears it";
+    }
+
+    // Where a capture goes: the List on screen, or the default one in Today.
+    readonly property string captureListId: root.scope !== "" ? root.scope : (service ? service.defaultList : "")
+
+    readonly property string captureListTitle: {
+        var lists = service && service.lists ? service.lists : [];
+        for (var i = 0; i < lists.length; i++) {
+            if (String(lists[i].id) === root.captureListId) {
+                return Rows.plain(lists[i].title, 40);
+            }
+        }
+        return "";
+    }
+
+    // The captures that failed, oldest first, each named by the title it
+    // carried so two failures in one run are told apart.
+    readonly property var captureFailures: {
+        var out = [];
+        var map = service ? service.captures : null;
+        if (!map) {
+            return out;
+        }
+        for (var key in map) {
+            var record = map[key];
+            if (record && !record.pending && record.message !== "") {
+                out.push({
+                    key: key,
+                    seq: record.seq,
+                    label: Rows.plain(record.title, 40) + " — " + record.message
+                });
+            }
+        }
+        out.sort(function (a, b) {
+            return a.seq - b.seq;
+        });
+        return out;
+    }
+
+    readonly property int capturesPending: {
+        var count = 0;
+        var map = service ? service.captures : null;
+        if (!map) {
+            return 0;
+        }
+        for (var key in map) {
+            if (map[key] && map[key].pending) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
     readonly property int selectedIndex: {
         if (root.selectedId === "") {
             return -1;
@@ -260,7 +358,105 @@ Item {
         if (row === null || !root.service) {
             return;
         }
-        root.service.applyOp(op, row.list, row.id);
+        root.service.applyOp(op, { list: row.list, task: row.id });
+    }
+
+    function _openEditor(mode, seed) {
+        // Whatever was armed is not what is being typed at.
+        root.armedId = "";
+        root.editorNotice = "";
+        root.editorMode = mode;
+        editor.text = seed;
+        // The content needs a layout pass before focus will land, the same
+        // reason open() defers its own.
+        Qt.callLater(function () {
+            editor.forceActiveFocus();
+            // Seeded and selected, so the first keystroke replaces it — what
+            // the TUI's own due editor does, and what makes `d` quick.
+            editor.selectAll();
+        });
+    }
+
+    function openCapture() {
+        if (root.captureListId === "") {
+            // Today with no default list resolved. oxidone's TUI refuses the
+            // same capture in the same situation; say so rather than open a
+            // field whose Enter could only fail.
+            root.editorNotice = "No list to capture into yet — open oxidone once, or pick a list.";
+            return;
+        }
+        root._openEditor("capture", "");
+    }
+
+    function openRetitle() {
+        var row = root.selectedRow;
+        if (row === null) {
+            return;
+        }
+        root.editorTargetId = row.id;
+        root.editorTargetList = row.list;
+        // The raw title, not the drawn one: `retitle` sends a Display title back
+        // and oxidone re-applies the type, so seeding from the elided,
+        // control-stripped version would save that mangling as the new name.
+        root._openEditor("retitle", row.rawTitle);
+    }
+
+    function openDue() {
+        var row = root.selectedRow;
+        if (row === null) {
+            return;
+        }
+        root.editorTargetId = row.id;
+        root.editorTargetList = row.list;
+        root._openEditor("due", row.due);
+    }
+
+    function closeEditor() {
+        root.editorMode = "";
+        root.editorTargetId = "";
+        root.editorTargetList = "";
+        root.editorNotice = "";
+        // The strip is where a capture's failure is shown, so closing it is what
+        // dismisses one. A capture still in flight keeps its record.
+        if (root.service) {
+            root.service.clearSettledCaptures();
+        }
+        keys.forceActiveFocus();
+    }
+
+    function commitEditor() {
+        var text = editor.text.trim();
+        if (!root.service) {
+            return;
+        }
+        if (root.editorMode === "capture") {
+            // An empty submit creates nothing and says nothing, exactly as the
+            // TUI's does — it is how you leave a capture you thought better of.
+            if (text === "") {
+                return;
+            }
+            root.service.capture(text, root.captureListId, root.scope === "");
+            // Stays open, cleared: a capture run is type, Enter, type, Enter.
+            editor.text = "";
+            return;
+        }
+        if (root.editorMode === "retitle") {
+            if (text === "") {
+                root.editorNotice = "A title cannot be empty.";
+                return;
+            }
+            root.service.applyOp("retitle", { list: root.editorTargetList, task: root.editorTargetId, title: text });
+        } else if (root.editorMode === "due") {
+            // An emptied field is the clear. `set_due` and `clear_due` are
+            // separate commands on the wire, exactly as the contract requires —
+            // this is one key reaching both, not one op with a nullable field.
+            if (text === "") {
+                root.service.applyOp("clear_due", { list: root.editorTargetList, task: root.editorTargetId });
+            } else {
+                root.service.resolveAndSetDue(root.editorTargetList, root.editorTargetId, text);
+            }
+        }
+        root.closeEditor();
     }
 
     // Space is its own undo: on an outstanding row it completes, on a completed
@@ -278,6 +474,20 @@ Item {
         // A refresh landed underneath the arm. The id may still exist, but the
         // person armed what was on screen a moment ago, not what is now.
         root.armedId = "";
+        // A rename or a date being typed for a row that has since gone — deleted
+        // elsewhere, or migrated out of Today — has nothing left to apply to.
+        if (root.editorMode === "retitle" || root.editorMode === "due") {
+            var stillThere = false;
+            for (var i = 0; i < root.rows.length; i++) {
+                if (root.rows[i].kind === "entry" && root.rows[i].id === root.editorTargetId) {
+                    stillThere = true;
+                    break;
+                }
+            }
+            if (!stillThere) {
+                root.closeEditor();
+            }
+        }
     }
 
     PanelWindow {
@@ -343,9 +553,13 @@ Item {
             PanelKeyCatcher {
                 id: keys
                 anchors.fill: parent
-                // The popup owns j/k and Enter while it is open; the pane's
-                // cursor must hold still rather than move underneath it.
-                blocked: scopeDropdown.popupOpen
+                // The popup owns j/k and Enter while it is open, and the
+                // editor owns every printable key while it is; the pane's
+                // cursor must hold still rather than move underneath either.
+                // Bound to `editorMode` rather than the field's focus, so a
+                // click that takes focus elsewhere cannot hand `x` back to a
+                // row while a rename is half-typed above it.
+                blocked: scopeDropdown.popupOpen || root.editorMode !== ""
                 onCloseRequested: {
                     // Esc cancels the arm before it closes the pane: the person
                     // who armed by accident reaches for Esc, and having it close
@@ -403,8 +617,16 @@ Item {
                     // would disarm, and the armed prompt would go on hiding the
                     // migrate's own failure message until an `x` deleted the row.
                     root.armedId = "";
+                    // The TUI's own three: `a` adds, `e` edits the title, `d`
+                    // the due date.
                     if (text === "m") {
                         root.applySelected("migrate");
+                    } else if (text === "a") {
+                        root.openCapture();
+                    } else if (text === "e") {
+                        root.openRetitle();
+                    } else if (text === "d") {
+                        root.openDue();
                     }
                 }
 
@@ -427,6 +649,10 @@ Item {
                         textFormat: Text.PlainText
                     }
 
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.spacing.xs
+
                     Dropdown {
                         id: scopeDropdown
                         Layout.fillWidth: true
@@ -446,6 +672,117 @@ Item {
                         onPopupOpenChanged: {
                             if (!scopeDropdown.popupOpen) {
                                 keys.forceActiveFocus();
+                            }
+                        }
+                    }
+
+                        // Capture is the one op with no row to hover, so its
+                        // way in for the mouse lives beside the selector that
+                        // names where it will land.
+                        PanelActionButton {
+                            iconText: ""
+                            tooltipText: "New entry"
+                            focusable: false
+                            fontFamily: root.fontFamily
+                            onClicked: root.openCapture()
+                        }
+                    }
+
+                    // The editor. One field, three jobs — see `editorMode`.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: root.editorMode !== ""
+                        spacing: Style.spacing.xs
+
+                        Text {
+                            text: root.editorLabel
+                            color: Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        TextField {
+                            id: editor
+                            Layout.fillWidth: true
+                            placeholderText: root.editorPlaceholder
+                            font.family: root.fontFamily
+                            // A bound on the widget, not a rule about titles:
+                            // Google owns how long one may be, and says so with
+                            // an exit code. This only stops a pasted novel from
+                            // growing the field without end.
+                            //
+                            // Set far above Google's own 1024-character limit on
+                            // purpose. `maximumLength` truncates on assignment
+                            // and counts UTF-16 units, so a cap at that limit
+                            // would silently shorten a seeded title made of
+                            // astral characters — which is the very destruction
+                            // seeding from `rawTitle` exists to avoid.
+                            maximumLength: 4096
+                            Keys.onEscapePressed: function (event) {
+                                root.closeEditor();
+                                event.accepted = true;
+                            }
+                            // Not `onAccepted`. A QQC TextField emits that
+                            // signal without accepting the event, so the Return
+                            // goes on up to the key catcher — which by then is
+                            // unblocked, because committing closed the editor,
+                            // and answers it by opening the TUI. Every rename
+                            // and every date landed and then launched a
+                            // terminal over the pane. Accepting it here is what
+                            // stops the key at the field it was typed into.
+                            Keys.onReturnPressed: function (event) {
+                                root.commitEditor();
+                                event.accepted = true;
+                            }
+                            Keys.onEnterPressed: function (event) {
+                                root.commitEditor();
+                                event.accepted = true;
+                            }
+                        }
+                    }
+
+                    // What the strip has to say for itself: a refusal that never
+                    // became an Apply, the captures still in flight, and the ones
+                    // that failed — each named by its own title, because a run of
+                    // captures can have more than one answer outstanding.
+                    Column {
+                        Layout.fillWidth: true
+                        spacing: Style.spacing.xs
+                        visible: root.editorNotice !== "" || root.capturesPending > 0 || root.captureFailures.length > 0
+
+                        Text {
+                            width: parent.width
+                            visible: root.editorNotice !== ""
+                            text: root.editorNotice
+                            color: Color.urgent
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: root.capturesPending > 0
+                            text: root.capturesPending === 1 ? "sending…" : root.capturesPending + " sending…"
+                            color: Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        Repeater {
+                            model: root.captureFailures
+
+                            Text {
+                                width: parent.width
+                                text: modelData.label
+                                color: Color.urgent
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.font.caption
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
                             }
                         }
                     }
@@ -504,10 +841,14 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "j/k move · h/l scope · space done · m migrate · x delete · esc close"
+                        text: "j/k move · h/l scope · space done · a add · e rename · d due · m migrate · x delete · esc close"
                         color: Color.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
+                        // Nine verbs do not fit one line at the card's clamped
+                        // width, and eliding one would hide a key rather than
+                        // shorten a sentence.
+                        wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
                     }
                 }
@@ -674,7 +1015,12 @@ Item {
 
                         Text {
                             id: dueText
-                            visible: !entrySurface.armed && entrySurface.failure === ""
+                            // Five buttons and a date do not both fit once the
+                            // card is clamped to a narrow display. The date
+                            // yields, because the actions are only ever on the
+                            // one row being looked at, and it comes straight
+                            // back when the cursor moves on.
+                            visible: !entrySurface.armed && entrySurface.failure === "" && !actions.visible
                             text: row.dueLabel
                             color: row.overdue ? Color.urgent : Color.muted
                             font.family: root.fontFamily
@@ -697,6 +1043,28 @@ Item {
                                 onClicked: {
                                     root.selectedId = row.id;
                                     root.toggleComplete();
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Rename"
+                                focusable: false
+                                fontFamily: root.fontFamily
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.openRetitle();
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Due date"
+                                focusable: false
+                                fontFamily: root.fontFamily
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.openDue();
                                 }
                             }
 
