@@ -93,6 +93,47 @@ function captureKey(seq) {
   return "capture:" + String(seq);
 }
 
+// One queue entry's contribution to the Pending set.
+//
+// A capture is left out on purpose: its key is `captureKey`'s, never an Entry
+// id, so it names no row this set could mute — and its own Pending lives in the
+// Service's `captures` map, which a chained capture keeps raised across both
+// halves rather than one Apply at a time.
+function markPendingKey(pending, entry) {
+  if (!entry || entry.capture === true) {
+    return;
+  }
+  if (typeof entry.key !== "string" || entry.key === "") {
+    return;
+  }
+  pending[entry.key] = true;
+}
+
+/**
+ * Which rows are Pending: every key an Apply is outstanding for — the one in
+ * flight, everything queued behind it, and the row whose date is being
+ * resolved. Returned as a set keyed by Entry id, which is what the Pane reads.
+ *
+ * Derived on every call rather than remembered, because a flag written at
+ * enqueue and deleted by the answering handler cannot survive two Applies
+ * against one row: the first answer clears what the second is still waiting on
+ * (issue #5). Nothing here can fall out of step with the queue, because
+ * nothing here is kept.
+ */
+function pendingSet(current, queue, dueRequest) {
+  var pending = {};
+  if (dueRequest && typeof dueRequest.task === "string" && dueRequest.task !== "") {
+    pending[dueRequest.task] = true;
+  }
+  markPendingKey(pending, current);
+  if (Array.isArray(queue)) {
+    for (var i = 0; i < queue.length; i++) {
+      markPendingKey(pending, queue[i]);
+    }
+  }
+  return pending;
+}
+
 // An Entry we can actually fold in: an object with a string id. Anything else
 // is refused whole rather than patched in as a hole.
 function usableEntry(value) {
@@ -265,6 +306,7 @@ if (typeof module !== "undefined") {
     FIELDS: FIELDS,
     buildCommand: buildCommand,
     captureKey: captureKey,
+    pendingSet: pendingSet,
     parseEcho: parseEcho,
     parseDeleted: parseDeleted,
     messageForExit: messageForExit,

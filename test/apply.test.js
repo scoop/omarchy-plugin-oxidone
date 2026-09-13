@@ -4,6 +4,7 @@ import {
   FIELDS,
   buildCommand,
   captureKey,
+  pendingSet,
   parseEcho,
   parseDeleted,
   messageForExit,
@@ -283,4 +284,48 @@ test("insertEntry refuses anything that is not a usable entry", () => {
     expect(insertEntry(existing, bad)).toBe(existing);
   }
   expect(insertEntry(null, entry({}))).toBe(null);
+});
+
+test("pendingSet holds a row while a second Apply is still queued behind the first", () => {
+  const first = { key: "t1", capture: false };
+  const second = { key: "t1", capture: false };
+  // The instant that used to break it: the first is answered and dropped, the
+  // second dequeued in its place.
+  expect(pendingSet(second, [], null)).toEqual({ t1: true });
+  // And while both are still outstanding, one key, not two.
+  expect(pendingSet(first, [second], null)).toEqual({ t1: true });
+});
+
+test("pendingSet names every row with something outstanding", () => {
+  const current = { key: "t1", capture: false };
+  const queued = [
+    { key: "t2", capture: false },
+    { key: "t3", capture: false },
+  ];
+  expect(pendingSet(current, queued, { list: "L", task: "t4" })).toEqual({
+    t1: true,
+    t2: true,
+    t3: true,
+    t4: true,
+  });
+});
+
+test("pendingSet leaves captures out: their key is never an Entry id", () => {
+  const create = { key: captureKey(1), capture: true };
+  // The chained half is an ordinary set_due, still under the capture's key.
+  const chained = { key: captureKey(1), capture: true, chain: "captured" };
+  expect(pendingSet(create, [chained], null)).toEqual({});
+});
+
+test("pendingSet marks the row whose date is being resolved", () => {
+  expect(pendingSet(null, [], { list: "L", task: "t1", expr: "tomorrow" })).toEqual({ t1: true });
+});
+
+test("pendingSet is empty with nothing outstanding", () => {
+  expect(pendingSet(null, [], null)).toEqual({});
+});
+
+test("pendingSet does not throw on a queue that is not one", () => {
+  expect(pendingSet(null, null, null)).toEqual({});
+  expect(pendingSet(null, [null, {}, { key: "" }], {})).toEqual({});
 });
