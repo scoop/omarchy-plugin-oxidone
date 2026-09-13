@@ -112,6 +112,11 @@ Item {
     property int versionEpoch: 0
     property int todayEpoch: 0
 
+    // The binary epoch this Apply was started against. `applyProc.command`
+    // binds live to `resolvedBinary`, so without this a write queued for one
+    // binary could run against, and be answered by, another.
+    property int applyEpoch: 0
+
     // The Apply generation this Today poll was started against. Captured in
     // the same breath as `todayEpoch`, immediately before the process starts.
     property int todayApplyGeneration: 0
@@ -235,9 +240,16 @@ Item {
         if (root.applyCurrent !== null || root.applyQueue.length === 0 || applyProc.running) {
             return;
         }
+        if (!versionOk) {
+            // The binary was replaced or failed its check while this sat in the
+            // queue. Hold the queue rather than sending to something unvetted;
+            // the next passing version check drains it.
+            return;
+        }
         root.applyCurrent = root.applyQueue[0];
         root.applyQueue = root.applyQueue.slice(1);
         applyProc.stdinPayload = root.applyCurrent.command;
+        root.applyEpoch = root.epoch;
         applyProc.start();
     }
 
@@ -326,6 +338,8 @@ Item {
                 return;
             }
             root.consecutiveFailures = 0;
+            // A write held back for want of a usable binary now has one.
+            root.drainApply();
             root.refresh();
         }
     }
@@ -490,6 +504,16 @@ Item {
                 return;
             }
             root.applyPending = root._setApplyFlag(root.applyPending, sent.task, undefined);
+
+            if (root.applyEpoch !== root.epoch) {
+                // Started against a different binary. Whatever this answered, it
+                // is not a word from the binary we talk to now: fold nothing and
+                // say the change did not land.
+                console.warn("oxidone: apply", sent.op, "answered from a binary we no longer use");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                root.drainApply();
+                return;
+            }
 
             if (code !== 0 || tooLarge) {
                 var kind = State.errorKindOf(err);
