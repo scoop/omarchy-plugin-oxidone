@@ -27,13 +27,30 @@ The plugin does not vendor or install oxidone itself. If the configured
 binary is missing or older than 1.2.0, the plugin shows its unusable state
 rather than guessing.
 
-## This release is read-only
+## What it can change
 
-This first release only reads: it polls `oxidone json today` on an interval,
-and the bar and the pane both only ever show what oxidone returns. Opening a
-List in the pane reads that list's entries the same way. Nothing here
-creates, edits, completes, or otherwise writes anything. Writing is planned
-for a later release.
+This release reads on a poll and can change four things about an entry, each
+from a single key in the pane:
+
+| Key     | What it does                                                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Space` | Completes the entry, or reopens it if it is already complete.                                                              |
+| `m`     | Migrates it — moves its due date to the later of tomorrow or the day after its own due date. Never an exit; it stays open. |
+| `x`     | Deletes it. Press `x` once to arm the row, `x` again to confirm.                                                           |
+
+Every change is one `oxidone json apply`, with the command on the process's
+standard input rather than its arguments. The pane shows only what oxidone
+answers with: a row waits, muted, until the change is confirmed, and a change
+that fails says so on the row and leaves the entry exactly as it was. Nothing
+is applied locally first, so what you see is never a guess about what Google
+did.
+
+Deleting has no undo here. Google keeps a deleted task recoverable in its own
+web client, which is why the confirm prompt says so — this plugin cannot bring
+one back.
+
+Creating entries, renaming them, and setting or clearing a due date all need a
+text field, and are planned for the next release.
 
 ## Credentials and authorization
 
@@ -73,12 +90,15 @@ For the states a list cannot represent — auth-needed, unusable, or a stale
 Today poll — the pane shows a message instead, with a button to open oxidone
 where that's the only way forward.
 
-| Key              | Action                          |
-| ---------------- | ------------------------------- |
-| `j` / `k`, ↓ / ↑ | Move the cursor between entries |
-| `h` / `l`, ← / → | Switch scope (Today, or a List) |
-| Enter            | Open oxidone and close the pane |
-| Esc              | Close the pane                  |
+| Key              | Action                                    |
+| ---------------- | ----------------------------------------- |
+| `j` / `k`, ↓ / ↑ | Move the cursor between entries           |
+| `h` / `l`, ← / → | Switch scope (Today, or a List)           |
+| `Space`          | Complete the entry, or reopen it          |
+| `m`              | Migrate it to the next day                |
+| `x`              | Delete it — once to arm, again to confirm |
+| Enter            | Open oxidone and close the pane           |
+| Esc              | Cancel an armed delete, or close the pane |
 
 ## Settings
 
@@ -105,10 +125,13 @@ configuration. The last known count is held in memory for as long as the
 shell runs and is gone when it stops.
 
 It makes no network connections of its own. Everything it runs is the
-configured `oxidone` binary — as `oxidone json today` on its poll, and as
+configured `oxidone` binary — as `oxidone json today` on its poll, as
 `oxidone json lists` / `oxidone json tasks --list <id>` when the pane's scope
-selector is used — with a fixed minimal environment; oxidone is what talks to
-Google, using its own credentials. Opening the TUI from the pane runs
+selector is used, and as `oxidone json apply` when you change something — with
+a fixed minimal environment; oxidone is what talks to Google, using its own
+credentials. An `apply` command is written to that process's standard input,
+never passed as an argument, because a process's arguments are readable by
+every program running as you. Opening the TUI from the pane runs
 `omarchy-launch-or-focus-tui` the same way: an absolute-path process, its
 argument passed as its own array element. Nothing in this plugin runs through
 a shell.
