@@ -3,3 +3,8 @@ node_modules/
 .validate/
 bun.lock
 .shepherd-*
+
+# Written by release-please, in a markdown dialect prettier rewrites (`*` bullets
+# become `-`, its double blank lines collapse). Checking it would turn every
+# release merge into a red main for a file no human edits.
+CHANGELOG.md
