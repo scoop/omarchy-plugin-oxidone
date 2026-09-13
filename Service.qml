@@ -459,6 +459,10 @@ Item {
                     return;
                 }
                 root.listPayload = payload;
+                // A read speaks to the rows it carries: a row that failed in
+                // this scope has been answered for afresh, so its message has
+                // had its say and must not outlive the answer that replaced it.
+                root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
             }
