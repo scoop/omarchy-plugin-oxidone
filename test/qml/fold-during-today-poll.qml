@@ -7,21 +7,37 @@ import "src/state.js" as State
 // `applyGeneration !== todayApplyGeneration` check inside `todayProc`'s
 // `onFinishedWith`): an Apply that folds its Echo while a `json today` read
 // is in flight must not have that Echo overwritten by that read's older
-// answer.
+// answer, AND the discard branch must still run the bookkeeping after it —
+// `state = OK`, `lastSuccess = Date.now()`, `consecutiveFailures = 0`,
+// `scheduleNext(0)` — that keeps the poll clock alive. A regression that adds
+// an early `return` right after the discard's `console.warn` (the dead-poll-
+// timer failure this guard exists to catch) would still leave the Echo
+// intact, so that half needs its own proof independent of the Echo check.
 //
-// The fake binary answers `json today` at once on its first call — giving
-// the Service a Snapshot for the Apply below to fold into — and slow (a
-// `sleep`) on every call after, touching a "started" file the instant that
-// call begins and a "done" file the instant it is about to answer. Two small
-// shell loops here wait on those files rather than reaching into Service's
-// private process state, which is none of this harness's business: one
-// releases the Apply the moment the stale read is actually in flight, the
-// other tells the harness when that read has been fully handled — payload,
-// outstanding, state, lastSuccess and consecutiveFailures all take their
-// final value inside `todayProc.onFinishedWith`, synchronously, so once its
-// process has visibly finished there is nothing left to wait for.
+// Three `json today` calls, not two, get there:
+//   1. Succeeds at once, giving the Service a Snapshot — the Apply below has
+//      nothing to fold into otherwise (`_foldEcho` no-ops when `payload` is
+//      still null). This is also why the read that puts the guard under test
+//      cannot itself be the first one, however tempting that shortcut looks.
+//   2. Deliberately fails (exit 4), purely to drive `state` to `stale` and
+//      `consecutiveFailures` to 1 *before* the race — a known "bad" baseline
+//      the bookkeeping either does or doesn't move off of. Answering this
+//      one plainly instead is indistinguishable from never having exercised
+//      the tail at all: it would already read `ok` / 0 from call 1, and the
+//      assertion would pass whether or not the discard branch's tail ever
+//      ran.
+//   3. Slow (no fixed sleep — it waits on the Apply's own completion marker,
+//      so nothing here is a timing guess) and stale relative to the Echo
+//      that folds while it is out. This is the read the guard is for.
 //
-// The fake's `json apply` always answers with the entry completed; its
+// The fake touches a "started" file the instant call 3 begins and a "done"
+// file the instant it is about to answer; two small shell loops here wait on
+// those rather than reaching into Service's private process state, which is
+// none of this harness's business. Quickshell reaps them along with every
+// other child when the harness exits, so a marker that never arrives leaves
+// nothing orphaned — only the deadlines below firing late.
+//
+// The fake's `json apply` always answers with the entry completed; its slow
 // `json today` always answers with that same entry still `needsAction` — so
 // if the poll's answer ever won the race, the row would revert, and this
 // harness would see it by reading `status` back out of the Snapshot.
@@ -38,25 +54,45 @@ ShellRoot {
     readonly property string entryId: "entry-1"
     readonly property string listId: "L1"
 
-    property bool secondPollAsked: false
+    property bool failureAsked: false
+    property bool raceAsked: false
     property bool applySent: false
     property bool reported: false
+
+    // Captured the moment `state` first goes `stale` — i.e. `lastSuccess` as
+    // call 1 left it, untouched by call 2's failure. The final report's own
+    // `lastSuccess` must be strictly newer than this for the bookkeeping to
+    // have actually run during the race read's discard, rather than these
+    // fields simply having been left at call 1's values all along.
+    property double lastSuccessBeforeRace: -1
 
     Service {
         id: service
         binaryPath: harness.binary
         // Never fires inside the ceiling below: `State.nextDelaySeconds`
-        // floors every interval at 60s. The second `json today` read is
+        // floors every interval at 60s. Every read past the first here is
         // asked for by `settleToday()` — the same path a `set_due` chains
         // off — not by this clock.
         pollIntervalSec: 3600
 
-        // The first poll landing is what gives the Apply below something to
-        // fold into. The moment it does, ask for a second read and start
-        // waiting for that read's own "started" marker.
+        // Call 1 landing is what gives the Apply below something to fold
+        // into. The moment it does, ask for call 2 — the deliberate failure
+        // that sets up a "bad" baseline for the bookkeeping proof.
         onPayloadChanged: {
-            if (!harness.secondPollAsked && service.payload !== null) {
-                harness.secondPollAsked = true;
+            if (!harness.failureAsked && service.payload !== null) {
+                harness.failureAsked = true;
+                service.settleToday();
+            }
+        }
+
+        // Call 2's failure is what drives `state` to `stale`. The moment it
+        // does, capture the baseline and ask for call 3 — the slow, stale
+        // read the guard is actually for — and start waiting for its
+        // "started" marker.
+        onStateChanged: {
+            if (!harness.raceAsked && service.state === State.STALE) {
+                harness.raceAsked = true;
+                harness.lastSuccessBeforeRace = service.lastSuccess;
                 service.settleToday();
                 startWait.start();
             }
@@ -86,15 +122,16 @@ ShellRoot {
             outstanding: service.outstanding,
             consecutiveFailures: service.consecutiveFailures,
             lastSuccess: service.lastSuccess,
+            lastSuccessBeforeRace: harness.lastSuccessBeforeRace,
             applyGeneration: service.applyGeneration,
         }));
         Qt.exit(code);
     }
 
-    // Waits for the second `json today` to have actually begun — its own
-    // sleep already ticking — before the Apply is allowed to fire. Firing
-    // any earlier would race an ordinary fast poll instead of the slow one
-    // the guard exists for.
+    // Waits for call 3 to have actually begun — its own wait for the Apply's
+    // completion marker already under way — before the Apply is allowed to
+    // fire. Firing any earlier would race call 1 or call 2 instead of the
+    // stale read the guard exists for.
     BoundedProcess {
         id: startWait
         command: ["sh", "-c", "until [ -f \"" + harness.startedMarker + "\" ]; do sleep 0.02; done"]
@@ -109,10 +146,10 @@ ShellRoot {
         }
     }
 
-    // Waits for the second `json today` to have fully answered — the read
-    // whose answer must lose the race — so the report below is taken only
-    // once `todayProc.onFinishedWith` has actually run its discard branch,
-    // not merely once the Apply's own fold has landed.
+    // Waits for call 3 to have fully answered — the read whose answer must
+    // lose the race — so the report below is taken only once
+    // `todayProc.onFinishedWith` has actually run its discard branch, not
+    // merely once the Apply's own fold has landed.
     BoundedProcess {
         id: doneWait
         command: ["sh", "-c", "until [ -f \"" + harness.doneMarker + "\" ]; do sleep 0.02; done"]
