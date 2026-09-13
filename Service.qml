@@ -116,6 +116,11 @@ Item {
     // the same breath as `todayEpoch`, immediately before the process starts.
     property int todayApplyGeneration: 0
 
+    // The same, for the List read. The List has no clock behind it, so an
+    // answer that predates a fold would revert a confirmed write for as long
+    // as the scope stays put — longer than Today's one poll cycle.
+    property int tasksApplyGeneration: 0
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
@@ -159,6 +164,7 @@ Item {
     // `listRequestedId` (what was asked for) can never drift apart.
     function startListLoad() {
         root.listRequestedId = root.listId;
+        root.tasksApplyGeneration = root.applyGeneration;
         tasksProc.start();
     }
 
@@ -443,6 +449,15 @@ Item {
                     return;
                 }
                 root.listStaleDiscards = 0;
+                if (root.applyGeneration !== root.tasksApplyGeneration) {
+                    // An Apply folded its Echo into this List while the read was
+                    // in flight. The fold is the server's own, newer word on that
+                    // row; this answer was gathered before it and would revert it
+                    // — and nothing re-reads a List on a clock, so the reverted
+                    // row would stay wrong until the scope changes.
+                    console.warn("oxidone: list answer predates a write in flight, not folding it in");
+                    return;
+                }
                 root.listPayload = payload;
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
