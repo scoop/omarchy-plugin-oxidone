@@ -52,7 +52,7 @@ A row whose **Apply** is queued or sent and not yet answered. Muted and non-inte
 _Avoid_: loading, busy, in-flight, dirty.
 
 **Armed**:
-A row that has been asked to delete and waits for the confirming second press. Moving the cursor or any change to the **Snapshot** disarms it.
+A row that has been asked to delete and waits for the confirming second input — a second `x`, or a second click on that row's own delete button; either input arms, and either commits. Moving the cursor, taking the pointer to a different row, or any change to the **Snapshot** disarms it.
 _Avoid_: confirming, pending, selected.
 
 **Editor**:
