@@ -49,6 +49,7 @@ Item {
     }
 
     function close() {
+        root.armedId = "";
         root.opened = false;
     }
 
@@ -105,6 +106,8 @@ Item {
         // selectedIndex is derived from selectedId, so the cursor resets by
         // clearing the id rather than the (read-only) derived index.
         root.selectedId = "";
+        // The row armed under the old scope is not on screen any more.
+        root.armedId = "";
         if (root.scope !== "" && service) {
             service.loadList(root.scope);
         }
@@ -162,6 +165,12 @@ Item {
     // to jump on its own. An id either still exists or does not.
     property string selectedId: ""
 
+    // The row asked to be deleted, waiting for its confirming second press.
+    // Delete is the only op with a gate, because it is the only one with no
+    // inverse: the CLI has no undelete, and Google's soft delete is reachable
+    // only from Google's own client.
+    property string armedId: ""
+
     // Consumed by onActivateRequested; see the comment on onReturnRequested.
     property bool _enterLatch: false
 
@@ -183,6 +192,9 @@ Item {
         if (root.selectable.length === 0) {
             return;
         }
+        // The row you were about to delete is not the row under the cursor any
+        // more.
+        root.armedId = "";
         var at = root.selectable.indexOf(root.selectedIndex);
         // From nowhere, a step down lands on the first row and a step up on
         // the last, so either key opens the list rather than doing nothing.
@@ -240,7 +252,12 @@ Item {
         root.applySelected(row.completed ? "uncomplete" : "complete");
     }
 
-    onRowsChanged: pointerGate.reset()
+    onRowsChanged: {
+        pointerGate.reset();
+        // A refresh landed underneath the arm. The id may still exist, but the
+        // person armed what was on screen a moment ago, not what is now.
+        root.armedId = "";
+    }
 
     PanelWindow {
         id: panel
@@ -308,7 +325,28 @@ Item {
                 // The popup owns j/k and Enter while it is open; the pane's
                 // cursor must hold still rather than move underneath it.
                 blocked: scopeDropdown.popupOpen
-                onCloseRequested: root.close()
+                onCloseRequested: {
+                    // Esc cancels the arm before it closes the pane: the person
+                    // who armed by accident reaches for Esc, and having it close
+                    // instead would read as the key doing the wrong thing.
+                    if (root.armedId !== "") {
+                        root.armedId = "";
+                        return;
+                    }
+                    root.close();
+                }
+                onDeleteRequested: {
+                    var row = root.selectedRow;
+                    if (row === null) {
+                        return;
+                    }
+                    if (root.armedId === row.id) {
+                        root.armedId = "";
+                        root.applySelected("delete");
+                        return;
+                    }
+                    root.armedId = row.id;
+                }
                 onMoveRequested: function (dx, dy) {
                     if (dy !== 0) {
                         root.moveCursor(dy);
@@ -337,7 +375,10 @@ Item {
                 onTextKey: function (text) {
                     if (text === "m") {
                         root.applySelected("migrate");
+                        return;
                     }
+                    // Anything else is a change of mind.
+                    root.armedId = "";
                 }
 
                 ColumnLayout {
