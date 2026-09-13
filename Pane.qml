@@ -676,6 +676,7 @@ Item {
                                 iconText: row.completed ? "" : ""
                                 tooltipText: row.completed ? "Reopen" : "Complete"
                                 focusable: false
+                                fontFamily: root.fontFamily
                                 onClicked: {
                                     root.selectedId = row.id;
                                     root.toggleComplete();
@@ -686,6 +687,7 @@ Item {
                                 iconText: ""
                                 tooltipText: "Migrate to tomorrow"
                                 focusable: false
+                                fontFamily: root.fontFamily
                                 onClicked: {
                                     root.selectedId = row.id;
                                     root.applySelected("migrate");
@@ -696,6 +698,7 @@ Item {
                                 iconText: ""
                                 tooltipText: "Delete"
                                 focusable: false
+                                fontFamily: root.fontFamily
                                 hoverColor: Color.urgent
                                 onClicked: {
                                     // The same gate the keyboard has: the first
