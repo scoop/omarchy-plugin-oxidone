@@ -1,0 +1,31 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  # For the `autorelease: pending` / `autorelease: tagged` labels release-please
+  # puts on its own pull request. Creating a label is an issues-scope write even
+  # when the label only ever lands on a PR, and neither exists in this repo yet.
+  issues: write
+
+# A second push while the first run is still grooming the release PR would have
+# both runs writing the same branch. Queue them instead; none is cancelled,
+# because the run that opens the release is the one that also tags it.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # No actions/checkout: the action reads commits and writes the release PR
+      # entirely through the GitHub API, so a working copy would go unused.
+      - uses: googleapis/release-please-action@v5
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json

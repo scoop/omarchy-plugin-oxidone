@@ -6,7 +6,11 @@
   "author": "scoop",
   "description": "What is due today in Google Tasks, read through the oxidone CLI. The bar stays empty until something is.",
   "license": "MIT",
-  "kinds": ["service", "bar-widget", "overlay"],
+  "kinds": [
+    "service",
+    "bar-widget",
+    "overlay"
+  ],
   "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",

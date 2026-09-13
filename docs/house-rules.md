@@ -40,6 +40,43 @@ you claim a change works.
 cannot run it for you. Run it locally whenever you touch `manifest.json`, a `.qml` file,
 or anything about what ships.
 
+## Releases
+
+release-please owns the version. Nobody edits `manifest.json`'s or `package.json`'s `version` by
+hand — the commit type decides: a `fix:` buys a patch, a `feat:` a minor, a `!` or a
+`BREAKING CHANGE:` footer a major, and everything else buys nothing. The workflow keeps a release
+pull request open and rewritten as commits land; merging it is the release, and tags the commit
+and publishes the GitHub Release.
+
+Two version fields move together. `package.json` is the node strategy's own; `manifest.json` is an
+`extra-files` updater in `.github/release-please-config.json`, and **it is the one that matters** —
+`omarchy plugin add` clones the default branch and the marketplace reads `manifest.json` at that
+same tip, so its `version` is the only one a user or the plugin directory ever sees. That updater
+fails quietly, logging a warning and opening a release PR that looks fine, which is why
+`test/manifest-version.test.js` fails the gate when the two drift.
+
+Four things about this that have no room for a comment where they live:
+
+- `CHANGELOG.md` is in `.prettierignore`. release-please writes `*` bullets and double blank lines,
+  prettier rewrites both, and `bun run verify` would fail on `main` after every release.
+- Every JSON file release-please rewrites gets `printWidth: 1` in `.prettierrc`. Its updaters
+  re-serialize the whole file with `JSON.stringify(_, null, 2)`, which always puts one array
+  element per line; prettier at the normal width pulls short arrays back onto one, so
+  `manifest.json`'s `kinds` alone would have failed the gate on every release. At `printWidth: 1`
+  prettier's output is byte-identical to `JSON.stringify`, so the two agree and the files stay
+  formatted rather than ignored. Add a file to that override list before letting release-please
+  write to it.
+- `bootstrap-sha` in the config pins where the changelog starts, because release-please finds the
+  previous release by listing GitHub _Releases_ — a bare tag is invisible to it. Without the pin, a
+  missing release makes it walk hundreds of commits and backfill the lot. It is dead config once a
+  release exists and can be deleted.
+- The release PR gets no CI. It is opened by `GITHUB_TOKEN`, which by design does not trigger
+  `pull_request` workflows; `ci.yml` still runs on the push to `main` behind it.
+
+Tags are for humans and for the marketplace's `[Verify]` form, which binds a listing to one exact
+40-character SHA. No Omarchy command reads them — `omarchy plugin add` and `omarchy plugin update`
+both track the tip of the default branch.
+
 ## What the guardrails can't catch
 
 **Fail closed.** A Bridge that fails leaves the Snapshot standing and the plugin says

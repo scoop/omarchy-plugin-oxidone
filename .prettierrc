@@ -2,5 +2,11 @@
   "printWidth": 100,
   "tabWidth": 2,
   "semi": true,
-  "trailingComma": "all"
+  "trailingComma": "all",
+  "overrides": [
+    {
+      "files": ["manifest.json", "package.json", ".github/.release-please-manifest.json"],
+      "options": { "printWidth": 1 }
+    }
+  ]
 }
