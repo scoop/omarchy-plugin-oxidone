@@ -30,6 +30,11 @@ Item {
         // definition — whatever the shell's toggle path did before this
         // call, a stale arm must not carry into the newly-opened pane.
         root.armedId = "";
+        // Defensive, not load-bearing: a freshly-summoned pane has no popup
+        // open by definition. It costs nothing to say so here too, and it
+        // keeps the invariant true no matter how the previous appearance
+        // ended, rather than resting on close() alone getting it right.
+        scopeDropdown.close();
         // Populated ahead of being looked at: by the time anyone opens the
         // selector, Today is already showing, so there is no spinner state
         // to design for.
@@ -54,6 +59,18 @@ Item {
 
     function close() {
         root.armedId = "";
+        // `blocked` (below) is bound to the popup, not to `opened` — closing
+        // the pane while the scope selector is open leaves that binding
+        // true, and it stays true across the next open() too, since nothing
+        // else ever closes the popup. The result is a pane that comes back
+        // deaf to j/k, h/l, space, m and x, with focus otherwise perfectly
+        // fine — which reads as a flaky key catcher rather than a stuck
+        // popup. It looks intermittent for a second reason: Dropdown's own
+        // trigger handles Escape-while-open by closing the popup itself, so
+        // the first Escape after a reopen silently clears the latch instead
+        // of closing the pane, and everything starts working again. Closing
+        // the popup here, unconditionally, is what actually breaks the latch.
+        scopeDropdown.close();
         root.opened = false;
     }
 
