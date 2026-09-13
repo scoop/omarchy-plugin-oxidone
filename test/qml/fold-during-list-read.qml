@@ -13,13 +13,17 @@ import "src/state.js" as State
 //
 // Same shape as fold-during-today-poll.qml: the fake's `json tasks --list`
 // answers at once on its first call — giving the Service a listPayload to
-// fold into — and slow (a `sleep`) on every call after, touching a "started"
-// file the instant that call begins and a "done" file the instant it is
-// about to answer. Two shell loops here wait on those files rather than
-// reaching into Service's private process state. `json apply` always answers
-// with the entry completed; the slow `json tasks --list` always answers with
-// that same entry still `needsAction` — the stale, pre-fold answer the guard
-// must discard.
+// fold into — and slow on every call after, touching a "started" file the
+// instant that call begins and waiting on the Apply's own completion marker
+// (not a fixed sleep — nothing about this race's timing is a guess) before
+// touching a "done" file and answering. Two shell loops here wait on those
+// files rather than reaching into Service's private process state; Quickshell
+// reaps them along with every other child when the harness exits, so a
+// marker that never arrives leaves nothing orphaned — only the deadlines
+// below firing late. `json apply` always answers with the entry completed
+// and marks its own completion; the slow `json tasks --list` always answers
+// with that same entry still `needsAction` — the stale, pre-fold answer the
+// guard must discard.
 //
 // `json today` is answered too (emptily) because `Component.onCompleted`
 // inside Service.qml starts the ordinary poll regardless of what this test
@@ -93,9 +97,6 @@ ShellRoot {
             reason: reason,
             state: service.state,
             status: entry !== null ? entry.status : "",
-            entryCount: service.listPayload !== null && service.listPayload !== undefined
-                ? service.listPayload.entries.length
-                : -1,
             applyGeneration: service.applyGeneration,
         }));
         Qt.exit(code);

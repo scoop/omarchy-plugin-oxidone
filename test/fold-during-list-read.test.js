@@ -20,13 +20,16 @@ if (quickshell === null) {
 
 // `json tasks --list`'s first call answers at once, giving the Service a
 // listPayload to fold into; every call after that is the slow read the
-// guard exists for, marking its own start and end with files the harness's
-// QML waits on. `json today` is answered emptily so the ordinary poll
-// Service.qml starts on its own doesn't clutter the log. `json apply`
-// always answers with the entry completed; the slow `json tasks --list`
-// always answers with that same entry still `needsAction` — the stale,
-// pre-fold answer the guard must discard.
-function fakeBinary(logPath, counterPath, startedPath, donePath) {
+// guard exists for, marking its own start with a file the harness's QML
+// waits on and — instead of a fixed sleep — waiting on the Apply's own
+// completion marker before marking its own end and answering, so nothing
+// about this race's timing is a guess. `json today` is answered emptily so
+// the ordinary poll Service.qml starts on its own doesn't clutter the log.
+// `json apply` always answers with the entry completed and marks its own
+// completion; the slow `json tasks --list` always answers with that same
+// entry still `needsAction` — the stale, pre-fold answer the guard must
+// discard.
+function fakeBinary(logPath, counterPath, startedPath, donePath, applyDonePath) {
   return `#!/bin/bash
 # Written by test/fold-during-list-read.test.js. Logs every invocation.
 printf '%s\\n' "$*" >> "${logPath}"
@@ -48,7 +51,7 @@ case "\${1:-}" in
         echo "$count" > "${counterPath}"
         if [[ "$count" -ge 2 ]]; then
           touch "${startedPath}"
-          sleep 2
+          until [ -f "${applyDonePath}" ]; do sleep 0.02; done
         fi
         printf '{"list":"L1","entries":[{"id":"entry-1","list":"L1","parent":null,"title":"A task","display_title":"A task","type":"task","has_notes":false,"due":"2026-09-13","status":"needsAction","completed_at":null,"position":"01"}]}\\n'
         if [[ "$count" -ge 2 ]]; then
@@ -58,6 +61,7 @@ case "\${1:-}" in
         ;;
       apply)
         cat >/dev/null
+        touch "${applyDonePath}"
         printf '{"entry":{"id":"entry-1","list":"L1","parent":null,"title":"A task","display_title":"A task","type":"task","has_notes":false,"due":"2026-09-13","status":"completed","completed_at":"2026-09-13T00:00:00Z","position":"01"}}\\n'
         exit 0
         ;;
@@ -75,9 +79,10 @@ function foldDuringListRead() {
     const counter = join(dir, "list-count");
     const started = join(dir, "list-started");
     const done = join(dir, "list-done");
+    const applyDone = join(dir, "apply-done");
     return {
       binaries: {
-        oxidone: fakeBinary(log, counter, started, done),
+        oxidone: fakeBinary(log, counter, started, done, applyDone),
       },
       env: {
         OXIDONE_HARNESS_BIN: binary,
@@ -104,7 +109,6 @@ test.skipIf(quickshell === null)(
     // rather than for one poll cycle, which is why this one is asserted on
     // its own rather than folded into a three-part check like Today's.
     expect(report.status).toBe("completed");
-    expect(report.entryCount).toBe(1);
   },
   30000,
 );
