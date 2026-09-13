@@ -485,7 +485,7 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "j/k move · h/l scope · enter open oxidone · esc close"
+                        text: "j/k move · h/l scope · space done · m migrate · x delete · esc close"
                         color: Color.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -530,6 +530,7 @@ Item {
                 id: entryDelegate
 
                 CursorSurface {
+                    id: entrySurface
                     // Fixed, and clipped to it — the condition the Task 2 ruling
                     // accepted combining-mark titles on. Bounding code units
                     // cannot bound ink: glyphs that stack out of their line box
@@ -541,11 +542,16 @@ Item {
                     hasCursor: rowIndex === root.selectedIndex
                     current: rowIndex === root.selectedIndex
 
+                    readonly property bool pending: root.service !== null && root.service.applyPending[row.id] === true
+                    readonly property bool armed: root.armedId === row.id
+                    readonly property string failure: root.service !== null && root.service.applyErrors[row.id] !== undefined ? root.service.applyErrors[row.id] : ""
+
                     MouseArea {
+                        id: rowHover
                         anchors.fill: parent
                         hoverEnabled: true
-                        // A list that moves under a still pointer would
-                        // otherwise hand the cursor to whatever slid beneath it.
+                        // A row waiting on an answer is not a row to act on.
+                        enabled: !entrySurface.pending
                         onPositionChanged: function (mouse) {
                             if (pointerGate.moved(this, mouse)) {
                                 // The row you were about to delete is not the
@@ -566,7 +572,7 @@ Item {
                         // A Subtask nests one level under its parent; Today's
                         // rows carry no depth at all, hence the fallback.
                         anchors.leftMargin: (row.depth || 0) * Style.space(14)
-                        anchors.right: dueText.left
+                        anchors.right: rightEdge.left
                         anchors.rightMargin: Style.spacing.xs
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.spacing.xs
@@ -586,7 +592,10 @@ Item {
                             id: titleText
                             width: parent.width - Style.space(10) - Style.spacing.xs * 2 - notesText.width
                             text: row.title
-                            color: row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)
+                            // Pending is the same muted the Snapshot wears when
+                            // it cannot be trusted, and means the same thing: we
+                            // do not know yet.
+                            color: entrySurface.pending ? Color.muted : (entrySurface.armed || entrySurface.failure !== "" ? Color.urgent : (row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)))
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.body
                             font.strikeout: row.completed
@@ -606,15 +615,95 @@ Item {
                         }
                     }
 
-                    Text {
-                        id: dueText
+                    // Everything that lives at the row's right edge, laid out
+                    // rather than stacked. These used to anchor to parent.right
+                    // independently, and a selected row that also carried a
+                    // failure drew its message and its buttons on top of each
+                    // other. A positioner skips invisible children, so each
+                    // state composes here without the others knowing about it.
+                    Row {
+                        id: rightEdge
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: row.dueLabel
-                        color: row.overdue ? Color.urgent : Color.muted
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        textFormat: Text.PlainText
+                        spacing: Style.spacing.xs
+
+                        // The armed prompt says where a delete is recoverable,
+                        // because we cannot offer it ourselves: the CLI has no
+                        // undelete, and Google keeps a soft-deleted task in its own
+                        // client.
+                        Text {
+                            id: armedText
+                            visible: entrySurface.armed
+                            text: "x again to delete · recoverable in Google"
+                            color: Color.urgent
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            id: failureText
+                            visible: !entrySurface.armed && entrySurface.failure !== ""
+                            // Our sentence, chosen by exit code. oxidone's own
+                            // message never reaches a QML sink.
+                            text: entrySurface.failure
+                            color: Color.urgent
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            id: dueText
+                            visible: !entrySurface.armed && entrySurface.failure === ""
+                            text: row.dueLabel
+                            color: row.overdue ? Color.urgent : Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        // The mouse's way to the same three ops the keyboard has.
+                        // Revealed on the focused or hovered row, per the spec.
+                        Row {
+                            id: actions
+                            spacing: Style.spacing.xs
+                            visible: !entrySurface.pending && !entrySurface.armed && (rowIndex === root.selectedIndex || rowHover.containsMouse)
+
+                            PanelActionButton {
+                                iconText: row.completed ? "" : ""
+                                tooltipText: row.completed ? "Reopen" : "Complete"
+                                focusable: false
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.toggleComplete();
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Migrate to tomorrow"
+                                focusable: false
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.applySelected("migrate");
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Delete"
+                                focusable: false
+                                hoverColor: Color.urgent
+                                onClicked: {
+                                    // The same gate the keyboard has: the first
+                                    // press arms, and the armed row's own prompt is
+                                    // what confirms.
+                                    root.selectedId = row.id;
+                                    root.armedId = row.id;
+                                }
+                            }
+                        }
                     }
                 }
             }
