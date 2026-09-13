@@ -1,0 +1,72 @@
+#!/bin/bash
+# A stand-in for the oxidone binary, for the QML harness only. Never installed.
+#
+# BoundedProcess clears the environment, so the one channel the harness has for
+# steering this is a file under HOME — which the fixed environment does carry.
+set -euo pipefail
+
+fail_with=""
+if [[ -r "${HOME}/.fake-oxidone-exit" ]]; then
+  fail_with="$(head -c 8 "${HOME}/.fake-oxidone-exit" | tr -dc '0-9-')"
+fi
+
+entry() {
+  printf '{"id":"%s","list":"L1","parent":null,"title":"%s","display_title":"%s","type":"task","has_notes":false,"due":"%s","status":"%s","completed_at":null,"position":"%s"}' \
+    "$1" "$2" "$2" "$3" "$4" "$5"
+}
+
+case "${1:-}" in
+  --version)
+    echo "oxidone 1.2.0"
+    exit 0
+    ;;
+  json) ;;
+  *)
+    echo '{"error":{"kind":"usage","message":"fake: unexpected argument"}}' >&2
+    exit 2
+    ;;
+esac
+
+case "${2:-}" in
+  today)
+    printf '{"today":"2026-09-12","entries":[%s,%s]}\n' \
+      "$(entry a 'Send the signed contract back' 2026-09-09 needsAction 01)" \
+      "$(entry b 'Reply to the accessibility audit' 2026-09-12 needsAction 02)"
+    exit 0
+    ;;
+  lists)
+    printf '{"lists":[{"id":"L1","title":"Reminders"},{"id":"L2","title":"Work"}]}\n'
+    exit 0
+    ;;
+  tasks)
+    printf '{"list":"%s","entries":[%s]}\n' "${4:-L1}" \
+      "$(entry a 'Send the signed contract back' 2026-09-09 needsAction 01)"
+    exit 0
+    ;;
+  apply)
+    command="$(head -c 4096)"
+    if [[ -n $fail_with ]]; then
+      printf '{"error":{"kind":"fake","message":"asked to fail with %s"}}\n' "$fail_with" >&2
+      exit "$fail_with"
+    fi
+    op="$(printf '%s' "$command" | sed -n 's/.*"op":"\([a-z_]*\)".*/\1/p')"
+    task="$(printf '%s' "$command" | sed -n 's/.*"task":"\([^"]*\)".*/\1/p')"
+    echoed() { printf '{"entry":%s}\n' "$(entry "$1" 'Send the signed contract back' "$2" "$3" 01)"; }
+    case "$op" in
+      complete)   echoed "$task" 2026-09-09 completed ;;
+      uncomplete) echoed "$task" 2026-09-09 needsAction ;;
+      # Migrate always dates past today, which is what makes the row leave Today.
+      migrate)    echoed "$task" 2026-09-13 needsAction ;;
+      delete)     printf '{"deleted":{"list":"L1","id":"%s"}}\n' "$task" ;;
+      *)
+        printf '{"error":{"kind":"usage","message":"fake: unknown op"}}\n' >&2
+        exit 2
+        ;;
+    esac
+    exit 0
+    ;;
+  *)
+    echo '{"error":{"kind":"usage","message":"fake: unknown subcommand"}}' >&2
+    exit 2
+    ;;
+esac
