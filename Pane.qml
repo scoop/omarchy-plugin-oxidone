@@ -26,6 +26,15 @@ Item {
 
     function open(payloadJson) {
         root.opened = true;
+        // A pane that has just been summoned has nothing armed, by
+        // definition — whatever the shell's toggle path did before this
+        // call, a stale arm must not carry into the newly-opened pane.
+        root.armedId = "";
+        // Defensive, not load-bearing: a freshly-summoned pane has no popup
+        // open by definition. It costs nothing to say so here too, and it
+        // keeps the invariant true no matter how the previous appearance
+        // ended, rather than resting on close() alone getting it right.
+        scopeDropdown.close();
         // Populated ahead of being looked at: by the time anyone opens the
         // selector, Today is already showing, so there is no spinner state
         // to design for.
@@ -49,6 +58,19 @@ Item {
     }
 
     function close() {
+        root.armedId = "";
+        // `blocked` (below) is bound to the popup, not to `opened` — closing
+        // the pane while the scope selector is open leaves that binding
+        // true, and it stays true across the next open() too, since nothing
+        // else ever closes the popup. The result is a pane that comes back
+        // deaf to j/k, h/l, space, m and x, with focus otherwise perfectly
+        // fine — which reads as a flaky key catcher rather than a stuck
+        // popup. It looks intermittent for a second reason: Dropdown's own
+        // trigger handles Escape-while-open by closing the popup itself, so
+        // the first Escape after a reopen silently clears the latch instead
+        // of closing the pane, and everything starts working again. Closing
+        // the popup here, unconditionally, is what actually breaks the latch.
+        scopeDropdown.close();
         root.opened = false;
     }
 
@@ -105,6 +127,8 @@ Item {
         // selectedIndex is derived from selectedId, so the cursor resets by
         // clearing the id rather than the (read-only) derived index.
         root.selectedId = "";
+        // The row armed under the old scope is not on screen any more.
+        root.armedId = "";
         if (root.scope !== "" && service) {
             service.loadList(root.scope);
         }
@@ -162,6 +186,15 @@ Item {
     // to jump on its own. An id either still exists or does not.
     property string selectedId: ""
 
+    // The row asked to be deleted, waiting for its confirming second press.
+    // Delete is the only op with a gate, because it is the only one with no
+    // inverse: the CLI has no undelete, and Google's soft delete is reachable
+    // only from Google's own client.
+    property string armedId: ""
+
+    // Consumed by onActivateRequested; see the comment on onReturnRequested.
+    property bool _enterLatch: false
+
     readonly property int selectedIndex: {
         if (root.selectedId === "") {
             return -1;
@@ -180,6 +213,9 @@ Item {
         if (root.selectable.length === 0) {
             return;
         }
+        // The row you were about to delete is not the row under the cursor any
+        // more.
+        root.armedId = "";
         var at = root.selectable.indexOf(root.selectedIndex);
         // From nowhere, a step down lands on the first row and a step up on
         // the last, so either key opens the list rather than doing nothing.
@@ -215,7 +251,34 @@ Item {
         root.scope = options[next].value;
     }
 
-    onRowsChanged: pointerGate.reset()
+    // The row the cursor names, or null. Header rows are never selectable, so a
+    // non-negative selectedIndex always points at an entry.
+    readonly property var selectedRow: root.selectedIndex >= 0 ? root.rows[root.selectedIndex] : null
+
+    function applySelected(op) {
+        var row = root.selectedRow;
+        if (row === null || !root.service) {
+            return;
+        }
+        root.service.applyOp(op, row.list, row.id);
+    }
+
+    // Space is its own undo: on an outstanding row it completes, on a completed
+    // one it reopens. That pairing is why this slice needs no undo stack.
+    function toggleComplete() {
+        var row = root.selectedRow;
+        if (row === null) {
+            return;
+        }
+        root.applySelected(row.completed ? "uncomplete" : "complete");
+    }
+
+    onRowsChanged: {
+        pointerGate.reset();
+        // A refresh landed underneath the arm. The id may still exist, but the
+        // person armed what was on screen a moment ago, not what is now.
+        root.armedId = "";
+    }
 
     PanelWindow {
         id: panel
@@ -283,7 +346,28 @@ Item {
                 // The popup owns j/k and Enter while it is open; the pane's
                 // cursor must hold still rather than move underneath it.
                 blocked: scopeDropdown.popupOpen
-                onCloseRequested: root.close()
+                onCloseRequested: {
+                    // Esc cancels the arm before it closes the pane: the person
+                    // who armed by accident reaches for Esc, and having it close
+                    // instead would read as the key doing the wrong thing.
+                    if (root.armedId !== "") {
+                        root.armedId = "";
+                        return;
+                    }
+                    root.close();
+                }
+                onDeleteRequested: {
+                    var row = root.selectedRow;
+                    if (row === null) {
+                        return;
+                    }
+                    if (root.armedId === row.id) {
+                        root.armedId = "";
+                        root.applySelected("delete");
+                        return;
+                    }
+                    root.armedId = row.id;
+                }
                 onMoveRequested: function (dx, dy) {
                     if (dy !== 0) {
                         root.moveCursor(dy);
@@ -291,9 +375,38 @@ Item {
                         root.cycleScope(dx);
                     }
                 }
-                // Enter opens the place where things can actually be changed.
-                // This release reads; the TUI is where the day gets worked.
-                onReturnRequested: root.openTui()
+                // Enter opens the place where the day gets worked.
+                //
+                // PanelKeyCatcher emits returnRequested AND activateRequested
+                // for Enter, in that order, in one synchronous handler — while
+                // Space emits activateRequested alone. Without this latch, every
+                // Enter would open the TUI *and* complete the row under the
+                // cursor. The latch is set here and consumed immediately below.
+                onReturnRequested: {
+                    root._enterLatch = true;
+                    root.openTui();
+                }
+                onActivateRequested: {
+                    if (root._enterLatch) {
+                        root._enterLatch = false;
+                        return;
+                    }
+                    // Space is a key like any other: it is a change of mind
+                    // when a row is armed. Enter needs no handling here —
+                    // openTui() calls close(), which already clears the arm.
+                    root.armedId = "";
+                    root.toggleComplete();
+                }
+                onTextKey: function (text) {
+                    // Any key is a change of mind, `m` included: a migrate that
+                    // does not fold leaves `rows` untouched, so nothing else
+                    // would disarm, and the armed prompt would go on hiding the
+                    // migrate's own failure message until an `x` deleted the row.
+                    root.armedId = "";
+                    if (text === "m") {
+                        root.applySelected("migrate");
+                    }
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -391,7 +504,7 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "j/k move · h/l scope · enter open oxidone · esc close"
+                        text: "j/k move · h/l scope · space done · m migrate · x delete · esc close"
                         color: Color.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -436,6 +549,7 @@ Item {
                 id: entryDelegate
 
                 CursorSurface {
+                    id: entrySurface
                     // Fixed, and clipped to it — the condition the Task 2 ruling
                     // accepted combining-mark titles on. Bounding code units
                     // cannot bound ink: glyphs that stack out of their line box
@@ -447,17 +561,26 @@ Item {
                     hasCursor: rowIndex === root.selectedIndex
                     current: rowIndex === root.selectedIndex
 
+                    readonly property bool pending: root.service !== null && root.service.applyPending[row.id] === true
+                    readonly property bool armed: root.armedId === row.id
+                    readonly property string failure: root.service !== null && root.service.applyErrors[row.id] !== undefined ? root.service.applyErrors[row.id] : ""
+
                     MouseArea {
+                        id: rowHover
                         anchors.fill: parent
                         hoverEnabled: true
-                        // A list that moves under a still pointer would
-                        // otherwise hand the cursor to whatever slid beneath it.
+                        // A row waiting on an answer is not a row to act on.
+                        enabled: !entrySurface.pending
                         onPositionChanged: function (mouse) {
                             if (pointerGate.moved(this, mouse)) {
+                                // The row you were about to delete is not the
+                                // row under the pointer any more.
+                                root.armedId = "";
                                 root.selectedId = row.id;
                             }
                         }
                         onClicked: {
+                            root.armedId = "";
                             root.selectedId = row.id;
                             root.openTui();
                         }
@@ -468,7 +591,7 @@ Item {
                         // A Subtask nests one level under its parent; Today's
                         // rows carry no depth at all, hence the fallback.
                         anchors.leftMargin: (row.depth || 0) * Style.space(14)
-                        anchors.right: dueText.left
+                        anchors.right: rightEdge.left
                         anchors.rightMargin: Style.spacing.xs
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.spacing.xs
@@ -488,7 +611,10 @@ Item {
                             id: titleText
                             width: parent.width - Style.space(10) - Style.spacing.xs * 2 - notesText.width
                             text: row.title
-                            color: row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)
+                            // Pending is the same muted the Snapshot wears when
+                            // it cannot be trusted, and means the same thing: we
+                            // do not know yet.
+                            color: entrySurface.pending ? Color.muted : (entrySurface.armed || entrySurface.failure !== "" ? Color.urgent : (row.completed ? Color.muted : (row.overdue ? Color.urgent : Color.menu.text)))
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.body
                             font.strikeout: row.completed
@@ -508,15 +634,98 @@ Item {
                         }
                     }
 
-                    Text {
-                        id: dueText
+                    // Everything that lives at the row's right edge, laid out
+                    // rather than stacked. These used to anchor to parent.right
+                    // independently, and a selected row that also carried a
+                    // failure drew its message and its buttons on top of each
+                    // other. A positioner skips invisible children, so each
+                    // state composes here without the others knowing about it.
+                    Row {
+                        id: rightEdge
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: row.dueLabel
-                        color: row.overdue ? Color.urgent : Color.muted
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        textFormat: Text.PlainText
+                        spacing: Style.spacing.xs
+
+                        // The armed prompt says where a delete is recoverable,
+                        // because we cannot offer it ourselves: the CLI has no
+                        // undelete, and Google keeps a soft-deleted task in its own
+                        // client.
+                        Text {
+                            id: armedText
+                            visible: entrySurface.armed
+                            text: "x again to delete · recoverable in Google"
+                            color: Color.urgent
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            id: failureText
+                            visible: !entrySurface.armed && entrySurface.failure !== ""
+                            // Our sentence, chosen by exit code. oxidone's own
+                            // message never reaches a QML sink.
+                            text: entrySurface.failure
+                            color: Color.urgent
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        Text {
+                            id: dueText
+                            visible: !entrySurface.armed && entrySurface.failure === ""
+                            text: row.dueLabel
+                            color: row.overdue ? Color.urgent : Color.muted
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            textFormat: Text.PlainText
+                        }
+
+                        // The mouse's way to the same three ops the keyboard has.
+                        // Revealed on the focused or hovered row, per the spec.
+                        Row {
+                            id: actions
+                            spacing: Style.spacing.xs
+                            visible: !entrySurface.pending && !entrySurface.armed && (rowIndex === root.selectedIndex || rowHover.containsMouse)
+
+                            PanelActionButton {
+                                iconText: row.completed ? "" : ""
+                                tooltipText: row.completed ? "Reopen" : "Complete"
+                                focusable: false
+                                fontFamily: root.fontFamily
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.toggleComplete();
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Migrate to tomorrow"
+                                focusable: false
+                                fontFamily: root.fontFamily
+                                onClicked: {
+                                    root.selectedId = row.id;
+                                    root.applySelected("migrate");
+                                }
+                            }
+
+                            PanelActionButton {
+                                iconText: ""
+                                tooltipText: "Delete"
+                                focusable: false
+                                fontFamily: root.fontFamily
+                                hoverColor: Color.urgent
+                                onClicked: {
+                                    // The same gate the keyboard has: the first
+                                    // press arms, and the armed row's own prompt is
+                                    // what confirms.
+                                    root.selectedId = row.id;
+                                    root.armedId = row.id;
+                                }
+                            }
+                        }
                     }
                 }
             }

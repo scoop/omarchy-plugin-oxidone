@@ -6,7 +6,7 @@ An Omarchy bar plugin that surfaces Google Tasks through [oxidone](https://githu
 
 The task domain is oxidone's and is not restated here. **List**, **Task**, **Subtask**, **Entry type**, **Signifier**, **Notes**, **Display title**, **Due date**, **Today**, **Migrate**, **Status**, and the four exits are defined in [oxidone's CONTEXT.md](https://github.com/erwins-enkel/oxidone/blob/main/CONTEXT.md) and mean exactly what they mean there. A definition restated in two glossaries is a definition free to drift — in particular **Today**, whose membership the Indicator's count must equal.
 
-One divergence is live: `oxidone json today` is status-blind, so it returns Completed entries whenever they were completed, while the glossary's **Today** admits a Completed row only if it was completed today. The glossary's rule is the one that holds here — the plugin filters locally until [erwins-enkel/oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135) settles it.
+One divergence used to live here, and is now closed. `oxidone json today` was status-blind, returning Completed entries whenever they were completed; [erwins-enkel/oxidone#137](https://github.com/erwins-enkel/oxidone/pull/137) narrowed it to today's completions, and the plugin's `>= 1.2.0` floor is what enforces it. The plugin keeps no **Today** filter of its own — the second definition that [#135](https://github.com/erwins-enkel/oxidone/issues/135) existed to remove stays removed.
 
 The terms below are the ones this context adds.
 
@@ -35,6 +35,22 @@ _Avoid_: cache, mirror (that is oxidone's live-task store), store, state.
 **Stale**:
 The state in which the Snapshot is being shown because the last poll failed. Distinct from a count of zero, which is an answer; Stale is the absence of one.
 _Avoid_: offline, disconnected, error, unavailable.
+
+**Apply**:
+A **Bridge** that changes something: one `oxidone json apply`, one command on stdin, one answer. It differs from the read Bridges only in direction — the same short-lived process, holding the same nothing.
+_Avoid_: write (as a noun), mutation, update, request, action.
+
+**Echo**:
+The **Entry** an **Apply** returns, as the server left it. The plugin writes the Echo into the **Snapshot** rather than predicting the result, which is why it never holds a **Dirty** state in oxidone's sense. `delete` has no Echo — only the id of what went.
+_Avoid_: response, result, optimistic update.
+
+**Pending**:
+A row whose **Apply** is queued or sent and not yet answered. Muted and non-interactive, and keyed by **Entry** id rather than by row position, so a refresh underneath it cannot strand it on someone else's row.
+_Avoid_: loading, busy, in-flight, dirty.
+
+**Armed**:
+A row that has been asked to delete and waits for the confirming second press. Moving the cursor or any change to the **Snapshot** disarms it.
+_Avoid_: confirming, pending, selected.
 
 **Auth-needed**:
 The state in which oxidone reports no usable grant. The plugin never asks for consent itself — it says so and hands off to the TUI, where consent belongs.

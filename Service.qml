@@ -3,6 +3,7 @@ import Quickshell
 import "src/today.js" as Today
 import "src/state.js" as State
 import "src/version.js" as Version
+import "src/apply.js" as Apply
 
 // Owns the poll and the state derived from it.
 //
@@ -54,6 +55,36 @@ Item {
     // forever.
     property int listStaleDiscards: 0
 
+    // The Apply queue. One in flight at a time: each Apply is its own request to
+    // Google, `rate_limited` is a real exit, and one-at-a-time keeps the
+    // ordering reasoning tractable — slice 2 is the record of what concurrency
+    // costs here. Writes are sub-second, so at human keying speed the queue is
+    // invisible.
+    //
+    // Held in memory only. Persisting it would mean writing a file at a
+    // predictable path on every keystroke, which is the surface slice 1 refused
+    // for the Snapshot, for a queue that drains in under a second.
+    property var applyQueue: []
+    property var applyCurrent: null
+
+    // Used as sets keyed by Entry id. Assigned whole on every change, never
+    // mutated: a `var` property does not notify on mutation, so an in-place
+    // write would change the data and update no binding in the Pane.
+    property var applyPending: ({})
+    property var applyErrors: ({})
+
+    // Past any burst a person can type, small enough that "queue full" is a
+    // path that can actually be reached and tested.
+    readonly property int applyQueueMax: 32
+
+    readonly property int applyQueueDepth: applyQueue.length + (applyCurrent !== null ? 1 : 0)
+
+    // Bumped by every fold. Mirrors `epoch`: a Today poll captures this before
+    // it starts, and if a fold happens while that poll is in flight, the poll's
+    // answer is older than the fold and must not overwrite it — the fold is the
+    // server's own, newer word on that row.
+    property int applyGeneration: 0
+
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
     // a widget that cries wolf on every shell start is one you learn to ignore.
@@ -81,6 +112,20 @@ Item {
     property int versionEpoch: 0
     property int todayEpoch: 0
 
+    // The binary epoch this Apply was started against. `applyProc.command`
+    // binds live to `resolvedBinary`, so without this a write queued for one
+    // binary could run against, and be answered by, another.
+    property int applyEpoch: 0
+
+    // The Apply generation this Today poll was started against. Captured in
+    // the same breath as `todayEpoch`, immediately before the process starts.
+    property int todayApplyGeneration: 0
+
+    // The same, for the List read. The List has no clock behind it, so an
+    // answer that predates a fold would revert a confirmed write for as long
+    // as the scope stays put — longer than Today's one poll cycle.
+    property int tasksApplyGeneration: 0
+
     function refresh() {
         if (!binaryLooksAbsolute) {
             root.state = State.UNUSABLE;
@@ -106,6 +151,7 @@ Item {
         }
         if (!todayProc.running) {
             root.todayEpoch = root.epoch;
+            root.todayApplyGeneration = root.applyGeneration;
             todayProc.start();
         }
     }
@@ -123,6 +169,7 @@ Item {
     // `listRequestedId` (what was asked for) can never drift apart.
     function startListLoad() {
         root.listRequestedId = root.listId;
+        root.tasksApplyGeneration = root.applyGeneration;
         tasksProc.start();
     }
 
@@ -136,6 +183,119 @@ Item {
         if (!tasksProc.running) {
             root.startListLoad();
         }
+    }
+
+    // Assign, never mutate: see the note on applyPending.
+    function _setApplyFlag(map, key, value) {
+        var next = {};
+        for (var existing in map) {
+            next[existing] = map[existing];
+        }
+        if (value === undefined) {
+            delete next[key];
+        } else {
+            next[key] = value;
+        }
+        return next;
+    }
+
+    function clearApplyError(entryId) {
+        if (root.applyErrors[entryId] !== undefined) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, entryId, undefined);
+        }
+    }
+
+    /**
+     * Enqueue one Apply. `op` is one of Apply.OPS.
+     *
+     * Nothing is predicted here: the row is marked Pending and the Snapshot is
+     * left exactly as it was until the Echo arrives.
+     */
+    function applyOp(op, listId, taskId) {
+        if (!versionOk) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
+            return;
+        }
+        if (root.applyQueueDepth >= root.applyQueueMax) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "too many changes at once");
+            return;
+        }
+        var command;
+        try {
+            command = Apply.buildCommand(op, listId, taskId);
+        } catch (error) {
+            // Our bug, not oxidone's refusal: a row without a list id, or an op
+            // this release does not send.
+            console.warn("oxidone: refusing to send", op, "-", error.message);
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, Apply.messageForExit(1));
+            return;
+        }
+        root.clearApplyError(taskId);
+        root.applyPending = root._setApplyFlag(root.applyPending, taskId, true);
+        root.applyQueue = root.applyQueue.concat([{ op: op, list: listId, task: taskId, command: command }]);
+        root.drainApply();
+    }
+
+    function drainApply() {
+        if (root.applyCurrent !== null || root.applyQueue.length === 0 || applyProc.running) {
+            return;
+        }
+        if (!versionOk) {
+            // The binary was replaced or failed its check while this sat in the
+            // queue. Hold the queue rather than sending to something unvetted;
+            // the next passing version check drains it.
+            return;
+        }
+        root.applyCurrent = root.applyQueue[0];
+        root.applyQueue = root.applyQueue.slice(1);
+        applyProc.stdinPayload = root.applyCurrent.command;
+        root.applyEpoch = root.epoch;
+        applyProc.start();
+    }
+
+    // Fold one Echo into both Snapshots. Today and the open List can each hold
+    // the same Entry, and neither is authoritative over the other.
+    function _foldEcho(echo, leavesToday) {
+        if (root.payload !== null && root.payload !== undefined) {
+            var today = {
+                today: root.payload.today,
+                entries: leavesToday
+                    ? Apply.removeEntry(root.payload.entries, echo.id)
+                    : Apply.patchEntries(root.payload.entries, echo),
+            };
+            root.payload = today;
+            // Recomputed from the same functions the poll uses, so the bar can
+            // never disagree with the Pane about what the Snapshot means.
+            root.outstanding = Today.outstandingCount(today);
+            root.overdue = Today.hasOverdue(today);
+        }
+        if (root.listPayload !== null && root.listPayload !== undefined) {
+            root.listPayload = {
+                list: root.listPayload.list,
+                entries: Apply.patchEntries(root.listPayload.entries, echo),
+            };
+        }
+        // Every fold is a write the Snapshot now carries that a poll started
+        // earlier cannot know about.
+        root.applyGeneration += 1;
+    }
+
+    function _foldDeletion(entryId) {
+        if (root.payload !== null && root.payload !== undefined) {
+            var today = { today: root.payload.today, entries: Apply.removeEntry(root.payload.entries, entryId) };
+            root.payload = today;
+            root.outstanding = Today.outstandingCount(today);
+            root.overdue = Today.hasOverdue(today);
+        }
+        if (root.listPayload !== null && root.listPayload !== undefined) {
+            root.listPayload = {
+                list: root.listPayload.list,
+                entries: Apply.removeEntry(root.listPayload.entries, entryId),
+            };
+        }
+        // Every fold is a write the Snapshot now carries that a poll started
+        // earlier cannot know about.
+        root.applyGeneration += 1;
     }
 
     function scheduleNext(code) {
@@ -178,6 +338,8 @@ Item {
                 return;
             }
             root.consecutiveFailures = 0;
+            // A write held back for want of a usable binary now has one.
+            root.drainApply();
             root.refresh();
         }
     }
@@ -207,9 +369,24 @@ Item {
             }
             try {
                 var payload = Today.parseToday(out);
-                root.outstanding = Today.outstandingCount(payload);
-                root.overdue = Today.hasOverdue(payload);
-                root.payload = payload;
+                if (root.applyGeneration !== root.todayApplyGeneration) {
+                    // An Apply folded its Echo into the Snapshot while this read
+                    // was in flight. That Echo is the server's own, newer word on
+                    // its row; this answer was gathered before it and would
+                    // silently revert it (a completed task un-completing itself)
+                    // if written. Keep the fold; still take the parts of a
+                    // successful poll that do not touch the Snapshot's rows.
+                    console.warn("oxidone: today answer predates a write in flight, not folding it in");
+                } else {
+                    root.outstanding = Today.outstandingCount(payload);
+                    root.overdue = Today.hasOverdue(payload);
+                    root.payload = payload;
+                    // A poll supersedes only the failures it actually describes: an
+                    // Entry absent from this answer (a List-scope row with no Today
+                    // date, say) keeps its message until something speaks to that row.
+                    // An answer too old to render is too old to erase a message with.
+                    root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
+                }
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
@@ -287,10 +464,120 @@ Item {
                     return;
                 }
                 root.listStaleDiscards = 0;
+                if (root.applyGeneration !== root.tasksApplyGeneration) {
+                    // An Apply folded its Echo into this List while the read was
+                    // in flight. The fold is the server's own, newer word on that
+                    // row; this answer was gathered before it and would revert it
+                    // — and nothing re-reads a List on a clock, so the reverted
+                    // row would stay wrong until the scope changes.
+                    console.warn("oxidone: list answer predates a write in flight, not folding it in");
+                    return;
+                }
                 root.listPayload = payload;
+                // A read speaks to the rows it carries: a row that failed in
+                // this scope has been answered for afresh, so its message has
+                // had its say and must not outlive the answer that replaced it.
+                root.applyErrors = Apply.retainErrorsAbsentFrom(root.applyErrors, payload.entries);
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
             }
+        }
+    }
+
+    // The write Bridge. The command goes on stdin, never in argv: /proc's
+    // cmdline is readable by every process running as this user, and these
+    // carry the ids of the person's own tasks.
+    BoundedProcess {
+        id: applyProc
+        command: [root.resolvedBinary, "json", "apply"]
+        // One Entry back, or one small error envelope. Anything larger is a
+        // fault, not an answer.
+        maxBytes: 65536
+        // A person is waiting on this one, unlike a poll.
+        deadlineMs: 10000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            var sent = root.applyCurrent;
+            root.applyCurrent = null;
+            applyProc.stdinPayload = "";
+            if (sent === null) {
+                root.drainApply();
+                return;
+            }
+            root.applyPending = root._setApplyFlag(root.applyPending, sent.task, undefined);
+
+            if (root.applyEpoch !== root.epoch) {
+                // Started against a different binary. Whatever this answered, it
+                // is not a word from the binary we talk to now: fold nothing and
+                // say the change did not land.
+                console.warn("oxidone: apply", sent.op, "answered from a binary we no longer use");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                root.drainApply();
+                return;
+            }
+
+            if (code !== 0 || tooLarge) {
+                var kind = State.errorKindOf(err);
+                // oxidone's own message goes here and nowhere else: it is
+                // serde's sentence or Google's, not one to show a person.
+                console.warn("oxidone: apply", sent.op, "failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
+                if (code === 6) {
+                    // The row is gone from both Snapshots by the time
+                    // _foldDeletion returns, so there is no row left to carry a
+                    // message: the Pane looks errors up by row id, and this id no
+                    // longer names one. The row's disappearance is the feedback.
+                    root._foldDeletion(sent.task);
+                    root.refresh();
+                } else {
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(tooLarge ? 1 : code));
+                    if (code === 3) {
+                        // A fact about the grant, not about this row.
+                        root.state = State.AUTH_NEEDED;
+                    }
+                }
+                // Deliberately not STALE on exit 4: `stale` is a fact about a
+                // Today poll, and a failed write is not a failed poll.
+                root.drainApply();
+                return;
+            }
+
+            if (sent.op === "delete") {
+                var deleted = Apply.parseDeleted(out);
+                if (deleted === null) {
+                    console.warn("oxidone: apply delete answered with something unreadable");
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                    root.drainApply();
+                    return;
+                }
+                if (deleted.id !== sent.task || deleted.list !== sent.list) {
+                    // Answered for an Entry we did not send. Folding this would
+                    // remove the wrong row from both Snapshots — fail closed.
+                    console.warn("oxidone: apply delete answered for a different entry than sent");
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                    root.drainApply();
+                    return;
+                }
+                root._foldDeletion(deleted.id);
+                root.drainApply();
+                return;
+            }
+
+            var echo = Apply.parseEcho(out);
+            if (echo === null) {
+                // Exit 0 with an answer we cannot read is our bug. Keep the
+                // Snapshot untouched and say the change did not land, rather
+                // than claiming a success we cannot show.
+                console.warn("oxidone: apply", sent.op, "answered with something unreadable");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(1));
+                root.drainApply();
+                return;
+            }
+            // Migrate moves the due date to max(today, due) + 1 day, which is
+            // always strictly after today — so a migrated Entry is always out of
+            // Today. Derived from what the op does, deliberately not from a
+            // local `due <= today` test: that would put a second definition of
+            // Today in the plugin, which is the thing oxidone#137 removed.
+            root._foldEcho(echo, sent.op === "migrate");
+            root.drainApply();
         }
     }
 

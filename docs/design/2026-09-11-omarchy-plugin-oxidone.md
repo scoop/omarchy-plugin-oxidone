@@ -44,10 +44,14 @@ zero. The count is **outstanding work in Today**: cross-List, `due <= today`,
 undated excluded, still `needsAction`, Tasks and Events but not Notes — the
 Due-load's rule, not the Completion meter's.
 
-**Today's drift.** `json today` is status-blind; the glossary admits a Completed
-row only if it was completed today. The glossary wins here and the plugin
-filters locally until [oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135)
-settles it.
+**Today's drift.** ~~`json today` is status-blind; the glossary admits a
+Completed row only if it was completed today. The glossary wins here and the
+plugin filters locally until
+[oxidone#135](https://github.com/erwins-enkel/oxidone/issues/135) settles
+it.~~ **Superseded by "Today's definition moves upstream" in Slice 2
+decisions:** #135 was settled by oxidone#137, which narrowed `json today`
+upstream. The plugin carries no local filter, and the 1.2.0 floor is what
+enforces it.
 
 **Colour.** `urgent` when anything outstanding is overdue, otherwise
 `foreground`; `muted` when Stale. Tokens only — `qs.Commons.Color` and
@@ -55,10 +59,13 @@ settles it.
 anywhere in the tree.
 
 **States.** Exit 3 (`auth_expired`, `not_configured`, `token_store_failed`) is
-**Auth-needed**: a distinct quiet indicator whose click launches the TUI, where
-consent belongs. Exit 4 is **Stale**: keep the Snapshot, go muted. Exit 5 is
-Stale with an hour's backoff, since nothing smaller can change a quota. Exits 1
-and 2 are plugin faults — stay on the Snapshot, log, never nag.
+**Auth-needed**: a distinct quiet indicator. (Its click launched the TUI
+directly in slice 1; see "The click changes meaning" in Slice 2 decisions —
+the click now opens the Pane, which makes the TUI its primary action, since
+re-consenting is the one thing the Pane cannot do.) Exit 4 is **Stale**: keep
+the Snapshot, go muted. Exit 5 is Stale with an hour's backoff, since nothing
+smaller can change a quota. Exits 1 and 2 are plugin faults — stay on the
+Snapshot, log, never nag.
 
 **Snapshot.** The last good answer, held in memory by the `keepLoaded` Service.
 Not persisted to disk in slice 1: the first poll lands seconds after the shell
@@ -77,17 +84,23 @@ selector to scope to one List. Keyboard-first with the TUI's own bindings where
 they fit, mouse fully supported. Row actions revealed on focus or hover. Flat on
 Today, nested one level in List scope. Capture follows the Pane's scope.
 
-**Writes** (slice 3). Optimistic: apply locally, send, reconcile on the next
+**Writes** (slice 3). ~~Optimistic: apply locally, send, reconcile on the next
 poll; the server wins silently on conflict. An outright failure reverts the row
-and shows a non-modal inline error that clears on the next good poll.
+and shows a non-modal inline error that clears on the next good poll.~~
+**Superseded by "Echo, not optimism" in Slice 3 decisions:** written before we
+knew `json apply` answers with the Entry the server left. There is no local
+apply, so there is nothing to reconcile and nothing to revert.
 
 ## Slices
 
 1. **Indicator** — manifest, Service, polling, Snapshot, staleness, auth state,
    version gate. Read-only, no Pane. _Shipped._
 2. **Pane** — overlay, Today and List scopes, rows, keyboard navigation. Reads only.
-   _In progress._
-3. **Writes** — the eight `apply` ops, optimistic updates, failure handling.
+   _Shipped._
+3. **Writes** — `complete`, `uncomplete`, `migrate`, `delete`; Echo-driven; the
+   Apply queue and the failure surface. _Designed._
+4. **Text** — `create`, `retitle`, `set_due`, `clear_due`, and the inline editor
+   all four need.
 
 ## Slice 2 decisions
 
@@ -130,3 +143,77 @@ the second definition of Today that #135 existed to remove stays removed.
 - producer-side output caps; never `StdioCollector`
 - an absolute deadline, TERM→KILL teardown on every child
 - no `CLAUDE.md` / `AGENTS.md` / `.claude/` in the installable tree
+
+## Slice 3 decisions
+
+Settled in a grilling session on 2026-09-12, over 25 questions in five rounds.
+
+**The op set.** Four: `complete`, `uncomplete`, `migrate`, `delete` — the four
+dispositions minus Scheduled, plus `uncomplete` as the repair for a mis-tap. The
+other four all need a text field, which brings an inline editor, IME, paste, and
+the first titles this plugin _produces_ rather than receives. That is slice 4.
+
+**Echo, not optimism.** Every op but `delete` answers with the Entry as the
+server left it. The plugin sends, marks the row **Pending**, and writes the
+**Echo** into the Snapshot — it never predicts a result. So there is no **Dirty**
+state in oxidone's sense, no reconcile window, and no revert path. The cost is
+one process spawn and one round trip of a muted row; in a pure mirror,
+wrongly-instant is worse than honestly-slow.
+
+**Both scopes write.** Every Entry carries its own `list`, so an Apply is
+addressable from Today as readily as from a List — and Today is where the daily
+review happens.
+
+**Keys mirror the TUI** — `Space`, `m`, `x` — with a gate on `x` alone: it
+**Arms** the row, a second `x` commits, Esc or any other key cancels, and moving
+the cursor or any Snapshot change disarms. Enter keeps meaning "open the TUI";
+overloading it as confirm is how people delete what they meant to open. Note the
+trap oxidone's glossary names: BuJo's `X` is _complete_, oxidone's `x` is
+_delete_.
+
+**No undo stack.** `Space` is its own inverse. Migrate composes a day at a time,
+so a stray press is self-healing. Delete has no inverse in the CLI at all —
+Google's soft delete is recoverable only in Google's own UI, which the confirm
+copy says, since we cannot offer it. An undo stack would mean holding pre-write
+state: the second source of truth ADR-0001 forbids.
+
+**Stale neither blocks an Apply nor is caused by one.** oxidone owns the
+judgment — exit 4 says the network is still down, exit 6 that the Entry is gone.
+Stale stays exactly what slice 2 made it: a fact about a Today poll.
+
+**No local pre-flight.** `migrate` on a Completed Entry is refused with exit 7,
+and the plugin sends it anyway rather than encoding a rule it does not own. A
+duplicated rule drifts the moment oxidone relaxes it. The cost is one short-lived
+process on a mis-press.
+
+**Errors speak in the plugin's words**, chosen by exit code; oxidone's `message`
+goes to the log. Those messages are serde's and Google's — `unknown variant … at
+line 1 column 28` is a developer's sentence, not a user's. Nothing remote reaches
+the Pane, so no untrusted string exists on that path to sanitize.
+
+**The Apply queue lives in the Service**: one in flight, FIFO, capped at 32, each
+queued row Pending, a 10s deadline each. Writes continue through a Pane close —
+cancelling a request already at Google buys nothing and discards the Echo. The
+queue does not survive a shell restart; persisting it would mean writing a file
+at a predictable path on every keystroke, the surface slice 1 refused for the
+Snapshot.
+
+**One process wrapper.** `BoundedProcess` gains an optional stdin payload,
+written on start, then `stdinEnabled` cleared so the child sees EOF (verified
+against Quickshell 0.3.1: the pipe closes and the child exits). The payload is
+never argv, exactly as `json apply` requires. Same ceiling, deadline, teardown
+and cleared environment as every read.
+
+**Writes are on, with no setting.** The confirm gate is the mitigation; a
+checkbox is documentation, which review treats as no mitigation at all. The
+README's "This release is read-only" goes, replaced by a plain statement of what
+a keystroke can change.
+
+**Testing.** A fake oxidone under `test/` answers `apply` from a fixture and
+returns any exit on demand, so every failure branch is reachable without a
+network. It never enters the installable tree. One live check at the end, against
+a throwaway task.
+
+**The Indicator does not move while an Apply is in flight.** It is a glance
+surface; a sub-second Pending state would flicker at the edge of vision. The
+count moves when the Echo lands.
