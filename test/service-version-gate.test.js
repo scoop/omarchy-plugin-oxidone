@@ -1,16 +1,6 @@
 import { test, expect } from "bun:test";
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  copyFileSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { runHarness, quickshell } from "./qml-harness.js";
 
 // The version gate, exercised through the real Service under a real Quickshell.
 //
@@ -21,15 +11,10 @@ import { tmpdir } from "node:os";
 // them was asked what.
 //
 // Offscreen, so it needs no Wayland session and can run anywhere `qs` can.
+// The temp-dir assembly, fake-binary writing and `HARNESS` parsing live in
+// `test/qml-harness.js`, shared with every other QML-driven test; this file
+// keeps only the scenario — the two versions, the swap, and what each proves.
 
-const repo = join(import.meta.dir, "..");
-
-// The harness runs the Service under quickshell, which is always present on the
-// machine this plugin runs on and never on a stock CI runner. Failing there would
-// leave CI permanently red over something it cannot install, so it skips instead
-// — loudly. The coverage is not optional so much as local: every machine this
-// plugin is developed on has quickshell, because it is what the plugin runs in.
-const quickshell = Bun.which("qs");
 if (quickshell === null) {
   console.warn("service-version-gate: no `qs` on PATH — skipping the QML harness");
 }
@@ -64,53 +49,20 @@ exit 2
 // reporting `secondVersion`. Answers with what the Service ended up believing
 // and the log of what actually ran.
 function swapBinary(firstVersion, secondVersion) {
-  const dir = mkdtempSync(join(tmpdir(), "oxidone-harness-"));
-  try {
-    // `qs` will not import QML that resolves outside the folder it was given,
-    // and the marketplace validator refuses symlinks inside a plugin — so the
-    // config folder is assembled here, for the length of one test, instead of
-    // living in the repository.
-    const config = join(dir, "config");
-    mkdirSync(config);
-    for (const name of ["Service.qml", "BoundedProcess.qml", "src"]) {
-      symlinkSync(join(repo, name), join(config, name));
-    }
-    copyFileSync(join(repo, "test", "qml", "harness.qml"), join(config, "harness.qml"));
-
-    const log = join(dir, "exec.log");
+  return runHarness("harness.qml", (dir, log) => {
     const first = join(dir, "oxidone-first");
     const second = join(dir, "oxidone-second");
-    writeFileSync(first, fakeBinary("first", firstVersion, "entry-first", log), { mode: 0o755 });
-    writeFileSync(second, fakeBinary("second", secondVersion, "entry-second", log), {
-      mode: 0o755,
-    });
-
-    // The harness exits itself; `timeout` is only here so a wedged qs cannot
-    // hold the suite open.
-    const run = Bun.spawnSync(["timeout", "45", "qs", "-p", join(config, "harness.qml")], {
+    return {
+      binaries: {
+        "oxidone-first": fakeBinary("first", firstVersion, "entry-first", log),
+        "oxidone-second": fakeBinary("second", secondVersion, "entry-second", log),
+      },
       env: {
-        ...process.env,
-        QT_QPA_PLATFORM: "offscreen",
         OXIDONE_HARNESS_FIRST: first,
         OXIDONE_HARNESS_SECOND: second,
       },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    // qs prefixes and colours its log lines; the JSON after the marker is clean.
-    const output = run.stdout.toString() + run.stderr.toString();
-    const reported = /HARNESS (\{.*\})/.exec(output);
-    if (!reported) {
-      throw new Error("the harness reported nothing (is `qs` installed?):\n" + output);
-    }
-    return {
-      report: JSON.parse(reported[1]),
-      ran: existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [],
     };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 }
 
 test.skipIf(quickshell === null)(
