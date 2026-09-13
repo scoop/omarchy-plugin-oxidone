@@ -30,12 +30,11 @@ ShellRoot {
             }
         }
 
-        // Deferred: `listStaleDiscards` is incremented before the
-        // `> 3` check inside the same `onFinishedWith` call decides whether
-        // to retry — a direct read here could observe the count mid-flight,
-        // before that same call has finished deciding (and, for the
-        // in-bound cases, before its own retry has actually started).
-        onListStaleDiscardsChanged: Qt.callLater(harness.checkBound)
+        // Read directly, not deferred: `listStaleDiscards` is the only
+        // field this check depends on, and nothing later in the branch
+        // that just incremented it touches it again — the value is already
+        // final by the time this signal fires.
+        onListStaleDiscardsChanged: harness.checkBound()
     }
 
     function checkBound() {

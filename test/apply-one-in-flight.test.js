@@ -9,8 +9,22 @@ import { runHarness, quickshell } from "./qml-harness.js";
 //
 // Five Applies are queued in one burst; the fake holds each real invocation
 // open behind a marker file until the harness explicitly releases it, so the
-// log is a genuine trace of when each invocation actually started and ended,
-// not an artifact of everything running too fast to ever overlap.
+// log is a genuine trace of when each invocation actually started and ended.
+//
+// The real failure mode here is not two processes overlapping — `applyProc`
+// is one `Process` instance, and its own `start()` no-ops while `running` is
+// already true, so a broken `drainApply()` guard cannot make a second real
+// child spawn while the first is still up. What it actually does, proven by
+// hand-tracing a scratch mutation that dropped the guard down to just the
+// empty-queue check: `applyCurrent` and `stdinPayload` get silently
+// reassigned to a later entry while the earlier one is still in flight, so
+// the earlier entry is dropped — never sent, never erred, Pending forever —
+// while only the last overwrite's payload ever reaches the one process that
+// does run. That is what the per-task presence and length checks below
+// actually catch. The overlap check stays too, as a cheap invariant worth
+// keeping now that the log has real timing in it, but it is not what proves
+// the guard: it never fires under the mutation above, since only one real
+// "enter" ever happens.
 //
 // Offscreen, so it needs no Wayland session and can run anywhere `qs` can.
 
@@ -84,8 +98,11 @@ test.skipIf(quickshell === null)(
     }
     expect(ran).toHaveLength(10);
 
-    // The core property: no "enter" ever appears while a previous "enter"
-    // is still missing its "exit" — the log never shows two in flight.
+    // A cheap invariant, not the proof: no "enter" ever appears while a
+    // previous "enter" is still missing its "exit". A broken guard here
+    // does not trip this (see the header note) — it silently drops an
+    // entry instead, which the per-task counts above and the exact-order
+    // check below are what actually catch.
     let open = 0;
     for (const line of ran) {
       if (line.startsWith("enter ")) {

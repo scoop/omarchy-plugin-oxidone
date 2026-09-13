@@ -13,10 +13,18 @@ import "src/state.js" as State
 // `finishedWith` back into this script until the current JS turn ends and the
 // event loop runs again, the same fact `apply-queue-cap.qml` leans on. The
 // fake holds each real invocation open behind a marker file (`entered-N`)
-// until the harness explicitly releases it (`release-N`) — not a sleep, and
-// not merely "fast enough that nothing could overlap by luck": the fake is
-// deliberately kept alive so a broken guard has time to attempt a second
-// start while the first is still up, and the log would show it.
+// until the harness explicitly releases it (`release-N`) — not a sleep — so
+// the log has real timing in it rather than being an artifact of everything
+// running too fast to tell anything apart.
+//
+// A broken guard here does not make two real processes overlap: `applyProc`
+// is one `Process` instance, and its own `start()` no-ops while `running` is
+// already true, so nothing can make a second child actually spawn while the
+// first is still up. What it does instead — hand-traced against a scratch
+// mutation that dropped the guard to just the empty-queue check — is
+// silently reassign `applyCurrent`/`stdinPayload` to a later entry while an
+// earlier one is still in flight, dropping the earlier entry outright. See
+// the test file for which checks that failure mode actually trips.
 ShellRoot {
     id: harness
 
