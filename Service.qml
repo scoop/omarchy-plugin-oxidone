@@ -3,6 +3,7 @@ import Quickshell
 import "src/today.js" as Today
 import "src/state.js" as State
 import "src/version.js" as Version
+import "src/apply.js" as Apply
 
 // Owns the poll and the state derived from it.
 //
@@ -53,6 +54,30 @@ Item {
     // binary that keeps answering for the wrong list would otherwise be retried
     // forever.
     property int listStaleDiscards: 0
+
+    // The Apply queue. One in flight at a time: each Apply is its own request to
+    // Google, `rate_limited` is a real exit, and one-at-a-time keeps the
+    // ordering reasoning tractable — slice 2 is the record of what concurrency
+    // costs here. Writes are sub-second, so at human keying speed the queue is
+    // invisible.
+    //
+    // Held in memory only. Persisting it would mean writing a file at a
+    // predictable path on every keystroke, which is the surface slice 1 refused
+    // for the Snapshot, for a queue that drains in under a second.
+    property var applyQueue: []
+    property var applyCurrent: null
+
+    // Used as sets keyed by Entry id. Assigned whole on every change, never
+    // mutated: a `var` property does not notify on mutation, so an in-place
+    // write would change the data and update no binding in the Pane.
+    property var applyPending: ({})
+    property var applyErrors: ({})
+
+    // Past any burst a person can type, small enough that "queue full" is a
+    // path that can actually be reached and tested.
+    readonly property int applyQueueMax: 32
+
+    readonly property int applyQueueDepth: applyQueue.length + (applyCurrent !== null ? 1 : 0)
 
     // Starts silent, not alarmed. UNUSABLE would light the attention glyph for
     // the few hundred milliseconds before the first version check answers, and
@@ -138,6 +163,106 @@ Item {
         }
     }
 
+    // Assign, never mutate: see the note on applyPending.
+    function _setApplyFlag(map, key, value) {
+        var next = {};
+        for (var existing in map) {
+            next[existing] = map[existing];
+        }
+        if (value === undefined) {
+            delete next[key];
+        } else {
+            next[key] = value;
+        }
+        return next;
+    }
+
+    function clearApplyError(entryId) {
+        if (root.applyErrors[entryId] !== undefined) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, entryId, undefined);
+        }
+    }
+
+    /**
+     * Enqueue one Apply. `op` is one of Apply.OPS.
+     *
+     * Nothing is predicted here: the row is marked Pending and the Snapshot is
+     * left exactly as it was until the Echo arrives.
+     */
+    function applyOp(op, listId, taskId) {
+        if (!versionOk) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
+            return;
+        }
+        if (root.applyQueueDepth >= root.applyQueueMax) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "too many changes at once");
+            return;
+        }
+        var command;
+        try {
+            command = Apply.buildCommand(op, listId, taskId);
+        } catch (error) {
+            // Our bug, not oxidone's refusal: a row without a list id, or an op
+            // this release does not send.
+            console.warn("oxidone: refusing to send", op, "-", error.message);
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "the change did not go through");
+            return;
+        }
+        root.clearApplyError(taskId);
+        root.applyPending = root._setApplyFlag(root.applyPending, taskId, true);
+        root.applyQueue = root.applyQueue.concat([{ op: op, list: listId, task: taskId, command: command }]);
+        root.drainApply();
+    }
+
+    function drainApply() {
+        if (root.applyCurrent !== null || root.applyQueue.length === 0 || applyProc.running) {
+            return;
+        }
+        root.applyCurrent = root.applyQueue[0];
+        root.applyQueue = root.applyQueue.slice(1);
+        applyProc.stdinPayload = root.applyCurrent.command;
+        applyProc.start();
+    }
+
+    // Fold one Echo into both Snapshots. Today and the open List can each hold
+    // the same Entry, and neither is authoritative over the other.
+    function _foldEcho(echo, leavesToday) {
+        if (root.payload !== null && root.payload !== undefined) {
+            var today = {
+                today: root.payload.today,
+                entries: leavesToday
+                    ? Apply.removeEntry(root.payload.entries, echo.id)
+                    : Apply.patchEntries(root.payload.entries, echo),
+            };
+            root.payload = today;
+            // Recomputed from the same functions the poll uses, so the bar can
+            // never disagree with the Pane about what the Snapshot means.
+            root.outstanding = Today.outstandingCount(today);
+            root.overdue = Today.hasOverdue(today);
+        }
+        if (root.listPayload !== null && root.listPayload !== undefined) {
+            root.listPayload = {
+                list: root.listPayload.list,
+                entries: Apply.patchEntries(root.listPayload.entries, echo),
+            };
+        }
+    }
+
+    function _foldDeletion(entryId) {
+        if (root.payload !== null && root.payload !== undefined) {
+            var today = { today: root.payload.today, entries: Apply.removeEntry(root.payload.entries, entryId) };
+            root.payload = today;
+            root.outstanding = Today.outstandingCount(today);
+            root.overdue = Today.hasOverdue(today);
+        }
+        if (root.listPayload !== null && root.listPayload !== undefined) {
+            root.listPayload = {
+                list: root.listPayload.list,
+                entries: Apply.removeEntry(root.listPayload.entries, entryId),
+            };
+        }
+    }
+
     function scheduleNext(code) {
         pollTimer.interval = State.nextDelaySeconds(code, root.pollIntervalSec, root.consecutiveFailures) * 1000;
         pollTimer.restart();
@@ -213,6 +338,10 @@ Item {
                 root.state = State.OK;
                 root.lastSuccess = Date.now();
                 root.consecutiveFailures = 0;
+                // A fresh answer supersedes every failure it describes. Without
+                // this a row keeps "could not reach Google" under a poll that
+                // just reached it.
+                root.applyErrors = ({});
                 root.scheduleNext(0);
             } catch (error) {
                 // A clean exit with an answer we cannot read is our bug, not
@@ -291,6 +420,81 @@ Item {
             } catch (error) {
                 console.warn("oxidone: unreadable list:", error.message);
             }
+        }
+    }
+
+    // The write Bridge. The command goes on stdin, never in argv: /proc's
+    // cmdline is readable by every process running as this user, and these
+    // carry the ids of the person's own tasks.
+    BoundedProcess {
+        id: applyProc
+        command: [root.resolvedBinary, "json", "apply"]
+        // One Entry back, or one small error envelope. Anything larger is a
+        // fault, not an answer.
+        maxBytes: 65536
+        // A person is waiting on this one, unlike a poll.
+        deadlineMs: 10000
+        onFinishedWith: function (out, err, code, tooLarge) {
+            var sent = root.applyCurrent;
+            root.applyCurrent = null;
+            applyProc.stdinPayload = "";
+            if (sent === null) {
+                root.drainApply();
+                return;
+            }
+            root.applyPending = root._setApplyFlag(root.applyPending, sent.task, undefined);
+
+            if (code !== 0 || tooLarge) {
+                var kind = State.errorKindOf(err);
+                // oxidone's own message goes here and nowhere else: it is
+                // serde's sentence or Google's, not one to show a person.
+                console.warn("oxidone: apply", sent.op, "failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, Apply.messageForExit(tooLarge ? 1 : code));
+                if (code === 3) {
+                    // A fact about the grant, not about this row.
+                    root.state = State.AUTH_NEEDED;
+                } else if (code === 6) {
+                    // The Entry is gone, which means the Snapshot is wrong about
+                    // more than the row we touched. Drop it and re-read.
+                    root._foldDeletion(sent.task);
+                    root.refresh();
+                }
+                // Deliberately not STALE on exit 4: `stale` is a fact about a
+                // Today poll, and a failed write is not a failed poll.
+                root.drainApply();
+                return;
+            }
+
+            if (sent.op === "delete") {
+                var deleted = Apply.parseDeleted(out);
+                if (deleted === null) {
+                    console.warn("oxidone: apply delete answered with something unreadable");
+                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, "the change did not go through");
+                    root.drainApply();
+                    return;
+                }
+                root._foldDeletion(deleted.id);
+                root.drainApply();
+                return;
+            }
+
+            var echo = Apply.parseEcho(out);
+            if (echo === null) {
+                // Exit 0 with an answer we cannot read is our bug. Keep the
+                // Snapshot untouched and say the change did not land, rather
+                // than claiming a success we cannot show.
+                console.warn("oxidone: apply", sent.op, "answered with something unreadable");
+                root.applyErrors = root._setApplyFlag(root.applyErrors, sent.task, "the change did not go through");
+                root.drainApply();
+                return;
+            }
+            // Migrate moves the due date to max(today, due) + 1 day, which is
+            // always strictly after today — so a migrated Entry is always out of
+            // Today. Derived from what the op does, deliberately not from a
+            // local `due <= today` test: that would put a second definition of
+            // Today in the plugin, which is the thing oxidone#137 removed.
+            root._foldEcho(echo, sent.op === "migrate");
+            root.drainApply();
         }
     }
 
