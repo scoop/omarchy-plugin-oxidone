@@ -36,7 +36,7 @@ key in the pane:
 | ------- | ----------------------------------------------------------------------------------------------------------------- |
 | `Space` | Completes the entry, or reopens it if it is already complete.                                                     |
 | `m`     | Migrates it — its due date moves to tomorrow, or a day past its own due date if that is later, and it stays open. |
-| `x`     | Deletes it. Press `x` once to arm the row, `x` again to confirm.                                                  |
+| `x`     | Deletes it. Press `x` once to arm the row, then `x` again — or click the row's delete button — to confirm.        |
 | `a`     | Captures a new entry from a title. See "Capturing" below.                                                         |
 | `e`     | Renames it. The field opens with the current title; the entry keeps its type.                                     |
 | `d`     | Sets its due date, or clears the date if you empty the field and press Enter.                                     |
@@ -127,9 +127,11 @@ where that's the only way forward.
 | Esc              | Close the editor, cancel an armed delete, or close the pane |
 
 The row under the cursor, or under the pointer, also reveals buttons for the
-same complete, rename, due, migrate and delete actions; the delete button arms
-the row, and the confirming second press is still `x`. Capture has no row to
-hover, so its button sits beside the scope selector.
+same complete, rename, due, migrate and delete actions. The delete button arms
+the row and then stays put, in place of the other four, so a second click on it
+confirms — `x` and the button reach the same gate, and either one can arm a row
+the other one finishes. Capture has no row to hover, so its button sits beside
+the scope selector.
 
 ## Settings
 

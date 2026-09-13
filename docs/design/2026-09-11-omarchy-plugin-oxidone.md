@@ -177,11 +177,15 @@ addressable from Today as readily as from a List — and Today is where the dail
 review happens.
 
 **Keys mirror the TUI** — `Space`, `m`, `x` — with a gate on `x` alone: it
-**Arms** the row, a second `x` commits, Esc or any other key cancels, and moving
-the cursor or any Snapshot change disarms. Enter keeps meaning "open the TUI";
-overloading it as confirm is how people delete what they meant to open. Note the
-trap oxidone's glossary names: BuJo's `X` is _complete_, oxidone's `x` is
-_delete_.
+**Arms** the row, ~~a second `x` commits~~, Esc or any other key cancels, and
+~~moving the cursor~~ or any Snapshot change disarms. Enter keeps meaning "open
+the TUI"; overloading it as confirm is how people delete what they meant to open.
+Note the trap oxidone's glossary names: BuJo's `X` is _complete_, oxidone's `x`
+is _delete_.
+**The two struck clauses are narrowed by "Either input arms, either commits"
+below:** the gate itself is unchanged — what commits is a second input on the
+armed row, and a click on its delete button is now one of them; and it is a
+cursor move, not any pointer motion, that disarms.
 
 **No undo stack.** `Space` is its own inverse. Migrate composes a day at a time,
 so a stray press is self-healing. Delete has no inverse in the CLI at all —
@@ -317,3 +321,43 @@ takes it as an argument and there is no other route. Titles and ids stay on
 stdin. A date phrase is not a task title, the process lives milliseconds, and
 oxidone's `json` arg parsing joins everything after the subcommand verbatim, so
 a leading `-` is data rather than a flag.
+
+## The mouse's route through the delete gate
+
+Deferred out of slice 3 as [#4](https://github.com/scoop/omarchy-plugin-oxidone/issues/4),
+because "how does the mouse confirm" changes what an Armed row looks like and
+deserved its own decision rather than a fix slipped into a round.
+
+**Either input arms, either commits.** Arming used to hide the whole action Row,
+which took away the very button that had just been pressed and left `x` as the
+only way to finish — on a pane whose own spec says "mouse fully supported". The
+`!Armed` gate moved off the Row and onto the four buttons that are not the
+delete, so an Armed row keeps its trash button and a second click on it commits.
+The glyph does not change; the button wears the kit's hover fill and border in
+urgent, because the second press is meant to land on the same affordance as the
+first. It does not move either: a positioner skips invisible children, so with
+the other four hidden it is still the last visible child of a right-anchored Row,
+on the pixels it was pressed on. That is the whole reason this shape was chosen
+over a separate confirm button — there is no pointer travel to survive.
+
+**The gate is one function, not two.** `armOrDelete(id)` holds the
+`armedId === id` comparison for both the key and the click. That equality is what
+bounds an armed-state defect to one lost confirmation on the same row rather than
+a delete against a different one, and a second copy of it would be a second place
+for that bound to be got wrong.
+
+**A pointer only disarms by leaving for another row.** The old rule disarmed on
+any accepted motion over a row, including motion _within_ the Armed row — which
+would have let a few pixels of drift cancel an arm on a 22px target the person was
+still reaching for. Cursor moves, Snapshot changes, scope changes, Esc, Space and
+every other key disarm exactly as before.
+
+**Clicking an Armed row's body cancels and stops there**, rather than also opening
+the TUI and closing the pane. It is the reading `onCloseRequested` already gives
+Esc, for the reason stated there: someone backing out of a delete has not asked to
+go anywhere.
+
+**The prompt names both routes** — "click or x again to delete · recoverable in
+Google". Naming only the key is what stranded a mouse-only person mid-delete, and
+a prompt that named one route while two commit is the stale comment the house
+rules warn about.

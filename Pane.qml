@@ -469,6 +469,29 @@ Item {
         root.applySelected(row.completed ? "uncomplete" : "complete");
     }
 
+    // The delete gate, for both the `x` key and the row's trash button. It lives
+    // here rather than in each caller so the `armedId === id` equality is written
+    // once: that comparison is what bounds every armed-state defect to "one lost
+    // confirmation on the same row" instead of "deleted a different row", and a
+    // second copy of it is a second place for that bound to be got wrong.
+    //
+    // Selecting first is load-bearing twice over. applySelected() reads
+    // `selectedRow`, so it is what makes the id being deleted the id that was
+    // armed rather than whatever the cursor sat on before the click — and the
+    // action buttons are revealed on the selected-or-hovered row, while a
+    // pointer resting on a button leaves `rowHover.containsMouse` false. Arming
+    // without selecting would therefore hide the very button being pressed,
+    // which is the defect this whole change exists to close.
+    function armOrDelete(id) {
+        root.selectedId = id;
+        if (root.armedId === id) {
+            root.armedId = "";
+            root.applySelected("delete");
+            return;
+        }
+        root.armedId = id;
+    }
+
     onRowsChanged: {
         pointerGate.reset();
         // A refresh landed underneath the arm. The id may still exist, but the
@@ -575,12 +598,7 @@ Item {
                     if (row === null) {
                         return;
                     }
-                    if (root.armedId === row.id) {
-                        root.armedId = "";
-                        root.applySelected("delete");
-                        return;
-                    }
-                    root.armedId = row.id;
+                    root.armOrDelete(row.id);
                 }
                 onMoveRequested: function (dx, dy) {
                     if (dy !== 0) {
@@ -919,16 +937,35 @@ Item {
                         enabled: !entrySurface.pending
                         onPositionChanged: function (mouse) {
                             if (pointerGate.moved(this, mouse)) {
-                                // The row you were about to delete is not the
-                                // row under the pointer any more.
-                                root.armedId = "";
+                                // Only a *different* row disarms. This handler is
+                                // the row's own MouseArea, so `row` is by
+                                // construction the row under the pointer, and the
+                                // test reads as written: the row you were about to
+                                // delete is not the row under the pointer any more.
+                                //
+                                // Movement inside the armed row has to be survivable
+                                // now that the trash button is the mouse's confirm.
+                                // It is a 22px target, and disarming on any motion
+                                // at all would let a few pixels of drift cancel an
+                                // arm the person is still reaching to confirm.
+                                if (root.armedId !== row.id) {
+                                    root.armedId = "";
+                                }
                                 root.selectedId = row.id;
                             }
                         }
                         onClicked: {
+                            // Backing out of a delete is not a request to open the
+                            // TUI. Clicking the armed row cancels and stops there,
+                            // the same reading onCloseRequested gives Esc — and for
+                            // the same reason, since a pane that vanished into the
+                            // TUI would read as the click doing the wrong thing.
+                            var cancelling = root.armedId === row.id;
                             root.armedId = "";
                             root.selectedId = row.id;
-                            root.openTui();
+                            if (!cancelling) {
+                                root.openTui();
+                            }
                         }
                     }
 
@@ -996,10 +1033,15 @@ Item {
                         // because we cannot offer it ourselves: the CLI has no
                         // undelete, and Google keeps a soft-deleted task in its own
                         // client.
+                        //
+                        // It names both routes because both commit. Naming only the
+                        // key is what stranded a mouse-only person mid-delete: the
+                        // button they had just pressed was gone, and the prompt that
+                        // replaced it sent them to the keyboard to finish.
                         Text {
                             id: armedText
                             visible: entrySurface.armed
-                            text: "x again to delete · recoverable in Google"
+                            text: "click or x again to delete · recoverable in Google"
                             color: Color.urgent
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.caption
@@ -1032,6 +1074,13 @@ Item {
                             // steady means reserving five buttons' worth on
                             // every row in every state, paying in title width
                             // everywhere to settle the one row being looked at.
+                            //
+                            // `!armed` is not covered by `!actions.visible`, which
+                            // is why it stays: a row that is Pending *and* armed —
+                            // reachable by pressing `x` on a row waiting on some
+                            // other op, since the gate does not check Pending —
+                            // hides the actions for being Pending, and would
+                            // otherwise draw its date beside the armed prompt.
                             visible: !entrySurface.armed && entrySurface.failure === "" && !actions.visible
                             text: row.dueLabel
                             color: row.overdue ? Color.urgent : Color.muted
@@ -1043,17 +1092,27 @@ Item {
                         // The mouse's way to the same five ops the keyboard has.
                         // Revealed on the focused or hovered row, per the spec.
                         //
-                        // Every one of them moves the cursor, so every one
-                        // disarms first, exactly as the row's own MouseArea
-                        // does: a prompt left standing on the row the cursor
-                        // walked away from is a question about nothing. Delete
-                        // arms again on its way out, which is its whole point.
+                        // The four that are not the delete each move the cursor,
+                        // so each disarms first, exactly as the row's own
+                        // MouseArea does: a prompt left standing on the row the
+                        // cursor walked away from is a question about nothing.
+                        // They disarm whatever was armed *anywhere* — their own
+                        // row hides them while it is armed, but the row the
+                        // pointer is resting on is not always the armed one.
+                        //
+                        // Delete is the exception, and this Row's shape is built
+                        // around it. Arming used to hide the whole Row, which took
+                        // the trash button away the instant it was pressed and left
+                        // the keyboard as the only way to finish. The gate moved
+                        // onto the other four: an armed row keeps its trash button,
+                        // and that button is the confirm.
                         Row {
                             id: actions
                             spacing: Style.spacing.xs
-                            visible: !entrySurface.pending && !entrySurface.armed && (rowIndex === root.selectedIndex || rowHover.containsMouse)
+                            visible: !entrySurface.pending && (rowIndex === root.selectedIndex || rowHover.containsMouse)
 
                             PanelActionButton {
+                                visible: !entrySurface.armed
                                 iconText: row.completed ? "" : ""
                                 tooltipText: row.completed ? "Reopen" : "Complete"
                                 focusable: false
@@ -1066,6 +1125,7 @@ Item {
                             }
 
                             PanelActionButton {
+                                visible: !entrySurface.armed
                                 iconText: ""
                                 tooltipText: "Rename"
                                 focusable: false
@@ -1078,6 +1138,7 @@ Item {
                             }
 
                             PanelActionButton {
+                                visible: !entrySurface.armed
                                 iconText: ""
                                 tooltipText: "Due date"
                                 focusable: false
@@ -1090,6 +1151,7 @@ Item {
                             }
 
                             PanelActionButton {
+                                visible: !entrySurface.armed
                                 iconText: ""
                                 tooltipText: "Migrate to tomorrow"
                                 focusable: false
@@ -1101,19 +1163,29 @@ Item {
                                 }
                             }
 
+                            // Stays through the arm, and does not move when it does.
+                            // A positioner skips invisible children, so with the four
+                            // above hidden this is still the last visible child of a
+                            // right-anchored Row — the same pixels it occupied when it
+                            // was pressed. Nothing to travel to, and so nothing the
+                            // pointer can slip off on the way.
                             PanelActionButton {
                                 iconText: ""
-                                tooltipText: "Delete"
+                                tooltipText: entrySurface.armed ? "Click again to delete" : "Delete"
                                 focusable: false
+                                // An armed row wears the hover fill and border this
+                                // button would have under the pointer, in urgent. The
+                                // glyph itself does not change: the second press is on
+                                // the same affordance as the first, which is what
+                                // "again" in the prompt means.
+                                hasCursor: entrySurface.armed
+                                bordered: entrySurface.armed
                                 fontFamily: root.fontFamily
                                 hoverColor: Color.urgent
-                                onClicked: {
-                                    // The same gate the keyboard has: the first
-                                    // press arms, and the armed row's own prompt is
-                                    // what confirms.
-                                    root.selectedId = row.id;
-                                    root.armedId = row.id;
-                                }
+                                // The same gate the keyboard has, because it is the
+                                // same function: the first press arms, and a second
+                                // on the armed row commits.
+                                onClicked: root.armOrDelete(row.id)
                             }
                         }
                     }
