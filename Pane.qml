@@ -162,6 +162,9 @@ Item {
     // to jump on its own. An id either still exists or does not.
     property string selectedId: ""
 
+    // Consumed by onActivateRequested; see the comment on onReturnRequested.
+    property bool _enterLatch: false
+
     readonly property int selectedIndex: {
         if (root.selectedId === "") {
             return -1;
@@ -213,6 +216,28 @@ Item {
         // Clamped, not wrapped — the same rule the row cursor follows.
         var next = Math.max(0, Math.min(options.length - 1, at + delta));
         root.scope = options[next].value;
+    }
+
+    // The row the cursor names, or null. Header rows are never selectable, so a
+    // non-negative selectedIndex always points at an entry.
+    readonly property var selectedRow: root.selectedIndex >= 0 ? root.rows[root.selectedIndex] : null
+
+    function applySelected(op) {
+        var row = root.selectedRow;
+        if (row === null || !root.service) {
+            return;
+        }
+        root.service.applyOp(op, row.list, row.id);
+    }
+
+    // Space is its own undo: on an outstanding row it completes, on a completed
+    // one it reopens. That pairing is why this slice needs no undo stack.
+    function toggleComplete() {
+        var row = root.selectedRow;
+        if (row === null) {
+            return;
+        }
+        root.applySelected(row.completed ? "uncomplete" : "complete");
     }
 
     onRowsChanged: pointerGate.reset()
@@ -291,9 +316,29 @@ Item {
                         root.cycleScope(dx);
                     }
                 }
-                // Enter opens the place where things can actually be changed.
-                // This release reads; the TUI is where the day gets worked.
-                onReturnRequested: root.openTui()
+                // Enter opens the place where the day gets worked.
+                //
+                // PanelKeyCatcher emits returnRequested AND activateRequested
+                // for Enter, in that order, in one synchronous handler — while
+                // Space emits activateRequested alone. Without this latch, every
+                // Enter would open the TUI *and* complete the row under the
+                // cursor. The latch is set here and consumed immediately below.
+                onReturnRequested: {
+                    root._enterLatch = true;
+                    root.openTui();
+                }
+                onActivateRequested: {
+                    if (root._enterLatch) {
+                        root._enterLatch = false;
+                        return;
+                    }
+                    root.toggleComplete();
+                }
+                onTextKey: function (text) {
+                    if (text === "m") {
+                        root.applySelected("migrate");
+                    }
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
