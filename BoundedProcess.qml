@@ -143,10 +143,32 @@ Process {
     stderr: SplitParser {
         splitMarker: ""
         onRead: function (chunk) {
-            if (root._err.length >= root.maxErrBytes) {
+            if (root._overflowed) {
                 return;
             }
-            root._err += chunk.slice(0, root.maxErrBytes - root._err.length);
+            // Refused at the ceiling, exactly as stdout is, rather than cut
+            // down to it. A truncated error envelope is a value that looks
+            // whole and is not — the caller cannot tell the difference — and a
+            // child whose stderr has run away is one to take down rather than
+            // to keep reading from. `tooLarge` carries the refusal out.
+            if (root._err.length + chunk.length > root.maxErrBytes) {
+                root._overflowed = true;
+                root._err = "";
+                root.signal(15);
+                killTimer.restart();
+                return;
+            }
+            root._err += chunk;
+        }
+    }
+
+    // Belt and braces: destroying a running Process does take the child down on
+    // Quickshell 0.3.1, so nothing here depends on this. It is the pattern the
+    // plugin guide's QML example carries, and a shell torn down mid-poll is
+    // exactly the moment to be sure of rather than to reason about.
+    Component.onDestruction: {
+        if (running) {
+            signal(15);
         }
     }
 
