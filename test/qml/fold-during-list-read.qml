@@ -41,6 +41,11 @@ ShellRoot {
     readonly property string entryId: "entry-1"
     readonly property string listId: "L1"
 
+    // Constant script, never interpolated: the marker path travels as `$1`
+    // (positional args after the fourth array element), not pasted into the
+    // string itself. Shared by both waits below — only the marker differs.
+    readonly property string markerWaitScript: 'until [ -f "$1" ]; do sleep 0.02; done'
+
     property bool firstLoadAsked: false
     property bool secondLoadAsked: false
     property bool applySent: false
@@ -106,7 +111,7 @@ ShellRoot {
     // its own sleep already ticking — before the Apply is allowed to fire.
     BoundedProcess {
         id: startWait
-        command: ["sh", "-c", "until [ -f \"" + harness.startedMarker + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.startedMarker]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {
@@ -124,7 +129,7 @@ ShellRoot {
     // branch, not merely once the Apply's own fold has landed.
     BoundedProcess {
         id: doneWait
-        command: ["sh", "-c", "until [ -f \"" + harness.doneMarker + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.doneMarker]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {

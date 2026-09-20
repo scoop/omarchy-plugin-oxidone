@@ -28,6 +28,11 @@ ShellRoot {
     readonly property string aRelease: Quickshell.env("OXIDONE_HARNESS_A_RELEASE") || "/nonexistent/a-release"
     readonly property string listId: "L1"
 
+    // Constant script, never interpolated: the marker path travels as `$1`
+    // (positional args after the fourth array element), not pasted into the
+    // string itself.
+    readonly property string markerWaitScript: 'until [ -f "$1" ]; do sleep 0.02; done'
+
     property bool aVetted: false
     property bool swapped: false
     property bool bVetted: false
@@ -95,7 +100,7 @@ ShellRoot {
     // happen synchronously, inside this same handler.
     BoundedProcess {
         id: aEnteredWait
-        command: ["sh", "-c", "until [ -f \"" + harness.aEntered + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.aEntered]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {

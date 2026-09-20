@@ -20,6 +20,11 @@ ShellRoot {
     readonly property string l1Entered: Quickshell.env("OXIDONE_HARNESS_L1_ENTERED") || "/nonexistent/l1-entered"
     readonly property string l1Release: Quickshell.env("OXIDONE_HARNESS_L1_RELEASE") || "/nonexistent/l1-release"
 
+    // Constant script, never interpolated: the marker path travels as `$1`
+    // (positional args after the fourth array element), not pasted into the
+    // string itself.
+    readonly property string markerWaitScript: 'until [ -f "$1" ]; do sleep 0.02; done'
+
     property bool started: false
     property bool scopeChanged: false
     property bool reported: false
@@ -69,7 +74,7 @@ ShellRoot {
     // gathered under the old scope.
     BoundedProcess {
         id: l1EnteredWait
-        command: ["sh", "-c", "until [ -f \"" + harness.l1Entered + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.l1Entered]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {

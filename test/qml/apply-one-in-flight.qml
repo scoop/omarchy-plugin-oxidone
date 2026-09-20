@@ -34,6 +34,11 @@ ShellRoot {
     readonly property string listId: "L1"
     readonly property int totalOps: 5
 
+    // Constant script, never interpolated: the entered/release paths travel
+    // as `$1`/`$2` (positional args after the fourth array element), not
+    // pasted into the string itself. Shared by all five waits below.
+    readonly property string releaseScript: 'until [ -f "$1" ]; do sleep 0.02; done; touch "$2"'
+
     property bool enqueued: false
     property bool reported: false
 
@@ -81,14 +86,15 @@ ShellRoot {
     // Waits for real invocation N to have logged its "entered" marker, then
     // releases it. Chained rather than parallel, so invocation N+1's release
     // is never even attempted until N is confirmed to have started — which
-    // is only observable, per invocation, one at a time.
+    // is only observable, per invocation, one at a time. Returns the two
+    // positional arguments for `releaseScript` ($1, $2), not a script.
     function waitAndRelease(n) {
-        return "until [ -f \"" + harness.enteredPrefix + n + "\" ]; do sleep 0.02; done; touch \"" + harness.releasePrefix + n + "\"";
+        return [harness.enteredPrefix + n, harness.releasePrefix + n];
     }
 
     BoundedProcess {
         id: step1
-        command: ["sh", "-c", harness.waitAndRelease(1)]
+        command: ["sh", "-c", harness.releaseScript, "sh"].concat(harness.waitAndRelease(1))
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) { harness.report("step1-timed-out", 1); return; }
@@ -97,7 +103,7 @@ ShellRoot {
     }
     BoundedProcess {
         id: step2
-        command: ["sh", "-c", harness.waitAndRelease(2)]
+        command: ["sh", "-c", harness.releaseScript, "sh"].concat(harness.waitAndRelease(2))
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) { harness.report("step2-timed-out", 1); return; }
@@ -106,7 +112,7 @@ ShellRoot {
     }
     BoundedProcess {
         id: step3
-        command: ["sh", "-c", harness.waitAndRelease(3)]
+        command: ["sh", "-c", harness.releaseScript, "sh"].concat(harness.waitAndRelease(3))
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) { harness.report("step3-timed-out", 1); return; }
@@ -115,7 +121,7 @@ ShellRoot {
     }
     BoundedProcess {
         id: step4
-        command: ["sh", "-c", harness.waitAndRelease(4)]
+        command: ["sh", "-c", harness.releaseScript, "sh"].concat(harness.waitAndRelease(4))
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) { harness.report("step4-timed-out", 1); return; }
@@ -124,7 +130,7 @@ ShellRoot {
     }
     BoundedProcess {
         id: step5
-        command: ["sh", "-c", harness.waitAndRelease(5)]
+        command: ["sh", "-c", harness.releaseScript, "sh"].concat(harness.waitAndRelease(5))
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) { harness.report("step5-timed-out", 1); }
