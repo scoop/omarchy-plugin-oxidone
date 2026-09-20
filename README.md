@@ -172,8 +172,9 @@ either what you typed into the date field or the date the entry already had,
 which is what the field opens seeded with — and it is seeded only when that
 date is exactly `YYYY-MM-DD`, so an entry whose date is anything else opens the
 field empty rather than putting an unread string in an argument list. Whatever
-the field holds is checked again before it is sent: at most 128 characters and
-no control characters, or nothing runs and the row says so. That read needs no
+the field holds is checked again before it is sent: at most 128 characters, and
+none of the control or text-direction characters a title has to be scrubbed of
+to be drawn safely — otherwise nothing runs and the row says so. That read needs no
 credentials and makes no network request of its own. Opening the TUI from the pane runs
 `omarchy-launch-or-focus-tui` the same way: an absolute-path process, its
 argument passed as its own array element. Nothing in this plugin runs through
