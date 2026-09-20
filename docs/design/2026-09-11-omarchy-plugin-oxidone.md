@@ -83,7 +83,12 @@ Snapshot, log, never nag.
 Not persisted to disk in slice 1: the first poll lands seconds after the shell
 starts, and a file written on every poll buys a few seconds of cold-start
 accuracy for the exact symlink- and predictable-path-race surface that review
-scrutinises hardest. Revisit if cold starts prove annoying.
+scrutinises hardest. **Settled:** a week of daily use across four slices never
+produced a cold start worth the write. The Indicator is absent at zero anyway,
+so the gap it would close is the few seconds between the shell appearing and
+the first poll landing — during which the bar shows nothing rather than
+something wrong. The Snapshot stays in memory, and this stops being an open
+question.
 
 **Polling.** Every 5 minutes by default (configurable), immediately on open, with
 exponential backoff to a 30-minute ceiling. Reads get a 30s deadline — `today`
