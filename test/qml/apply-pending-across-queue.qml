@@ -38,6 +38,11 @@ ShellRoot {
     readonly property string enteredSecond: Quickshell.env("OXIDONE_HARNESS_ENTERED_SECOND") || "/nonexistent/entered-2"
     readonly property string releaseSecond: Quickshell.env("OXIDONE_HARNESS_RELEASE_SECOND") || "/nonexistent/release-2"
     readonly property string listId: "L1"
+
+    // Constant script, never interpolated: the marker path travels as `$1`
+    // (positional args after the fourth array element), not pasted into the
+    // string itself.
+    readonly property string markerWaitScript: 'until [ -f "$1" ]; do sleep 0.02; done'
     readonly property string taskId: "task-dup"
 
     property bool enqueued: false
@@ -133,7 +138,7 @@ ShellRoot {
 
     BoundedProcess {
         id: waitForSecond
-        command: ["sh", "-c", "until [ -f \"" + harness.enteredSecond + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.enteredSecond]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {

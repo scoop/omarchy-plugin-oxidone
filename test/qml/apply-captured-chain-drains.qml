@@ -24,6 +24,11 @@ ShellRoot {
     readonly property string setDueRelease: Quickshell.env("OXIDONE_HARNESS_SET_DUE_RELEASE") || "/nonexistent/set-due-release"
     readonly property string listId: "L1"
 
+    // Constant script, never interpolated: the marker path travels as `$1`
+    // (positional args after the fourth array element), not pasted into the
+    // string itself.
+    readonly property string markerWaitScript: 'until [ -f "$1" ]; do sleep 0.02; done'
+
     property bool captured: false
     property bool thirdEnqueued: false
     property bool reported: false
@@ -75,7 +80,7 @@ ShellRoot {
     // `applyCurrent` by this point.
     BoundedProcess {
         id: setDueEnteredWait
-        command: ["sh", "-c", "until [ -f \"" + harness.setDueEntered + "\" ]; do sleep 0.02; done"]
+        command: ["sh", "-c", harness.markerWaitScript, "sh", harness.setDueEntered]
         deadlineMs: 8000
         onFinishedWith: function (out, err, code, tooLarge) {
             if (code !== 0) {
