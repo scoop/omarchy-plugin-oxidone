@@ -218,6 +218,27 @@ test("a list's rows keep the CLI's order and nest one level", () => {
   expect(rows.map((r) => r.depth)).toEqual([0, 1, 0]);
 });
 
+test("a parent id off Object.prototype nests like any other, and throws nothing", () => {
+  // `parent` is a string oxidone printed. On a plain object `byParent`,
+  // `byParent["__proto__"]` is Object's prototype rather than a slot an array
+  // can be assigned to, so the push threw a TypeError inside the `rows`
+  // binding — which takes the pane's whole list down until the scope changes.
+  const build = () =>
+    buildListRows({
+      list: "L",
+      entries: [
+        entry({ id: "__proto__", due: null }),
+        entry({ id: "c1", parent: "__proto__", due: null }),
+        entry({ id: "constructor", due: null }),
+        entry({ id: "c2", parent: "constructor", due: null }),
+      ],
+    });
+  expect(build).not.toThrow();
+  const rows = build();
+  expect(rows.map((r) => r.id)).toEqual(["__proto__", "c1", "constructor", "c2"]);
+  expect(rows.map((r) => r.depth)).toEqual([0, 1, 0, 1]);
+});
+
 test("a list row is never overdue, because a list is not a day", () => {
   const rows = buildListRows({ list: "L", entries: [entry({ due: "2020-01-01" })] });
   expect(rows[0].overdue).toBe(false);

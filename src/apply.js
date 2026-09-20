@@ -121,7 +121,10 @@ function markPendingKey(pending, entry) {
  * nothing here is kept.
  */
 function pendingSet(current, queue, dueRequest) {
-  var pending = {};
+  // Null-prototype, for the reason every id-keyed map in this plugin is: the
+  // keys are whatever oxidone printed, and on a plain object `pending["constructor"]`
+  // answers with Object's constructor for a row nothing is pending on.
+  var pending = Object.create(null);
   if (dueRequest && typeof dueRequest.task === "string" && dueRequest.task !== "") {
     pending[dueRequest.task] = true;
   }
@@ -280,24 +283,27 @@ function insertEntry(entries, echo) {
 // its message until something speaks to that row.
 function retainErrorsAbsentFrom(errors, entries) {
   if (!errors || typeof errors !== "object" || Array.isArray(errors)) {
-    return {};
+    return Object.create(null);
   }
   if (!Array.isArray(entries)) {
     // Nothing to compare against: safest is to change nothing, since we
     // cannot tell which failures this answer speaks to.
-    var copy = {};
+    var copy = Object.create(null);
     for (var key in errors) {
       copy[key] = errors[key];
     }
     return copy;
   }
-  var seen = {};
+  // Both keyed by Entry id, and an id is a string from outside: on a plain
+  // object `seen["toString"]` is truthy for an entry nobody sent, and the
+  // message it would silently prune belongs to a row that is still failing.
+  var seen = Object.create(null);
   for (var i = 0; i < entries.length; i++) {
     if (entries[i] && typeof entries[i].id === "string") {
       seen[entries[i].id] = true;
     }
   }
-  var out = {};
+  var out = Object.create(null);
   for (var id in errors) {
     if (!seen[id]) {
       out[id] = errors[id];

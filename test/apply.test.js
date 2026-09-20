@@ -329,3 +329,29 @@ test("pendingSet does not throw on a queue that is not one", () => {
   expect(pendingSet(null, null, null)).toEqual({});
   expect(pendingSet(null, [null, {}, { key: "" }], {})).toEqual({});
 });
+
+test("a map keyed by ids from outside answers for no key but its own", () => {
+  // Entry ids are whatever oxidone printed. On a plain object every one of
+  // these lookups is truthy for a row nothing is pending on and no failure was
+  // ever recorded against — which the Pane reads as Pending, and as a failure
+  // message it then stringifies onto the row.
+  const pending = pendingSet(null, [{ key: "a" }], null);
+  expect(pending.constructor).toBeUndefined();
+  expect(pending["__proto__"]).toBeUndefined();
+  expect(pending.toString).toBeUndefined();
+  expect(pending.a).toBe(true);
+
+  const kept = retainErrorsAbsentFrom({ a: "boom" }, [entry({ id: "zzz" })]);
+  expect(kept.constructor).toBeUndefined();
+  expect(kept["__proto__"]).toBeUndefined();
+  expect(kept.a).toBe("boom");
+
+  // The same on every early return, not only the main path.
+  expect(retainErrorsAbsentFrom(null, []).constructor).toBeUndefined();
+  expect(retainErrorsAbsentFrom({ a: "boom" }, null).constructor).toBeUndefined();
+
+  // And an id that really is `constructor` still carries its own message.
+  const own = retainErrorsAbsentFrom({ constructor: "boom" }, [entry({ id: "zzz" })]);
+  expect(own.constructor).toBe("boom");
+  expect(pendingSet(null, [{ key: "constructor" }], null).constructor).toBe(true);
+});

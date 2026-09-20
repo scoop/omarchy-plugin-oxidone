@@ -92,7 +92,13 @@ Item {
     // change, never mutated — an in-place write would change the data and
     // update no binding in the Pane. Unlike Pending, a message outlives the
     // Apply that produced it, so there is nothing to derive it from.
-    property var applyErrors: ({})
+    //
+    // Null-prototype, like every map in this plugin whose keys come from
+    // outside it. An Entry id is whatever oxidone printed, and the Pane asks
+    // `applyErrors[row.id] !== undefined` — on a plain object an entry id of
+    // `constructor` answers that with Object's constructor, and the row draws a
+    // stringified function as its failure message.
+    property var applyErrors: Object.create(null)
 
     // Captures, keyed one per capture rather than by Entry id — a `create` has
     // no Entry to be keyed by, and the Pane's strip stays open for a run, so two
@@ -103,7 +109,7 @@ Item {
     // Deliberately not `applyErrors`: that map is pruned by comparing its keys
     // against the entry ids in a fresh answer, and a capture key is never an
     // entry id, so a failure parked there would never be cleared at all.
-    property var captures: ({})
+    property var captures: Object.create(null)
     property int captureSeq: 0
 
     // Past any burst a person can type, small enough that "queue full" is a
@@ -267,7 +273,7 @@ Item {
 
     // Assign, never mutate: see the note on applyErrors.
     function _setApplyFlag(map, key, value) {
-        var next = {};
+        var next = Object.create(null);
         for (var existing in map) {
             next[existing] = map[existing];
         }
@@ -294,7 +300,7 @@ Item {
     // Assign, never mutate — the same rule `applyErrors` follows, for the same
     // reason. `record` of null removes the capture.
     function _putCapture(key, record) {
-        var next = {};
+        var next = Object.create(null);
         for (var existing in root.captures) {
             next[existing] = root.captures[existing];
         }
@@ -323,7 +329,7 @@ Item {
         failed.sort(function (a, b) {
             return a.seq - b.seq;
         });
-        var next = {};
+        var next = Object.create(null);
         for (var existing in root.captures) {
             next[existing] = root.captures[existing];
         }
@@ -335,7 +341,7 @@ Item {
 
     /** Drop every capture that has finished. The Pane calls this when its strip closes. */
     function clearSettledCaptures() {
-        var next = {};
+        var next = Object.create(null);
         for (var key in root.captures) {
             if (root.captures[key].pending) {
                 next[key] = root.captures[key];

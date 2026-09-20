@@ -196,7 +196,11 @@ function buildRows(payload) {
 // come out in the order they arrived. A Subtask nests one level under its
 // parent — never deeper, which the domain guarantees rather than this code.
 function buildListRows(payload) {
-  var byParent = {};
+  // Null-prototype: `parent` is a string oxidone printed, and on a plain object
+  // `byParent["__proto__"]` is not a slot you can assign an array to — the
+  // push below then throws inside the `rows` binding, which blanks the pane's
+  // whole list until something else makes it re-evaluate.
+  var byParent = Object.create(null);
   var roots = [];
   for (var i = 0; i < payload.entries.length; i++) {
     var entry = payload.entries[i];
