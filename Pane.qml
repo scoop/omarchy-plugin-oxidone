@@ -859,13 +859,21 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "j/k move · h/l scope · space done · a add · e rename · d due · m migrate · x delete · esc close"
+                        // Each key is bound to its verb with U+00A0, written as
+                        // an escape because a literal one is invisible in source
+                        // and the next person would delete it by accident. The
+                        // wrap below is deliberate; what it must not do is break
+                        // a pair, which it did — leaving a line ending in a bare
+                        // "m" and the next starting "migrate", reading as two
+                        // hints that are one.
+                        text: "j/k\u00a0move · h/l\u00a0scope · space\u00a0done · a\u00a0add · e\u00a0rename · d\u00a0due · m\u00a0migrate · x\u00a0delete · esc\u00a0close"
                         color: Color.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
                         // Nine verbs do not fit one line at the card's clamped
                         // width, and eliding one would hide a key rather than
-                        // shorten a sentence.
+                        // shorten a sentence. Breaks now fall only on the
+                        // separators.
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
                     }
