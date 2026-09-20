@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   plain,
+  hostText,
   buildRows,
   buildListRows,
   signifierFor,
@@ -51,6 +52,52 @@ test("a title longer than the cap is elided rather than passed through", () => {
 test("a missing title is an empty string, not the word undefined", () => {
   expect(plain(undefined)).toBe("");
   expect(plain(null)).toBe("");
+});
+
+test("plain() leaves markup characters alone, because its own sinks are pinned", () => {
+  // The row titles plain() feeds are drawn in Text.PlainText elements this
+  // plugin owns. A task really named "A & B" has to keep reading that way.
+  expect(plain("A & B")).toBe("A & B");
+  expect(plain("a <b> c")).toBe("a <b> c");
+});
+
+test("hostText neutralises the markup a host component would parse", () => {
+  // The placeholder and the Dropdown label are drawn by someone else's Text,
+  // which pins no textFormat — so AutoText would read this as an image tag
+  // and the shell process would fetch it.
+  expect(hostText('<img src="http://example.invalid/x.png">')).toBe(
+    ' img src="http://example.invalid/x.png" ',
+  );
+  expect(hostText("A & B")).toBe("A   B");
+  expect(hostText("&lt;b&gt;")).toBe(" lt;b gt;");
+});
+
+test("hostText keeps everything plain() does: controls, cap, surrogate pairs", () => {
+  expect(hostText("a\u0007b")).toBe("a b");
+  expect(hostText("a\u202Eb")).toBe("a b");
+  expect(hostText(undefined)).toBe("");
+  expect(hostText(null)).toBe("");
+
+  const capped = hostText("<".repeat(MAX_TITLE + 50));
+  expect(capped.length).toBe(MAX_TITLE);
+  expect(capped.endsWith("…")).toBe(true);
+  expect(capped.indexOf("<")).toBe(-1);
+
+  expect(hostText("x".repeat(20), 10)).toBe("x".repeat(9) + "…");
+
+  const pair = hostText("x".repeat(MAX_TITLE - 2) + String.fromCodePoint(0x1f600) + "y");
+  expect(pair.length).toBeLessThanOrEqual(MAX_TITLE);
+  for (let i = 0; i < pair.length; i++) {
+    const c = pair.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = pair.charCodeAt(i + 1);
+      expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) {
+      const prev = pair.charCodeAt(i - 1);
+      expect(prev >= 0xd800 && prev <= 0xdbff).toBe(true);
+    }
+  }
 });
 
 test("an entry type carries its signifier, a Task carries none", () => {

@@ -36,6 +36,27 @@ function plain(text, max) {
   return out;
 }
 
+// Everything `plain()` does, and then the markup characters as well — for the
+// sinks this plugin hands a string to but does not draw itself.
+//
+// A `Text` this plugin owns is pinned to `Text.PlainText`, so `<` and `&` are
+// just characters there and a task honestly named "A & B" has to keep reading
+// that way. That is why `plain()` must not strip them, and why this is a
+// second helper rather than a wider `plain()`.
+//
+// A host component owns its own format. QtQuick Controls' Basic style draws a
+// TextField's placeholder with a `Text` that sets no `textFormat` at all, so
+// `Text.AutoText` decides, and a string that looks like markup is parsed as
+// markup — which for `<img src="http://…">` means the shell process fetches a
+// URL a stranger's list name chose. There is no property on this side to pin,
+// and the host's file is not this plugin's to depend on, so the markup has to
+// be gone before the handoff.
+//
+// Replaced rather than deleted, for the same reason `plain()` gives.
+function hostText(text, max) {
+  return plain(text, max).replace(/[<>&]/g, " ");
+}
+
 // The Entry type's signifier, as the TUI draws it: an Event happens on a day,
 // a Note is a jotting, and a Task — the default — carries none.
 function signifierFor(type) {
@@ -207,6 +228,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     MAX_TITLE: MAX_TITLE,
     plain: plain,
+    hostText: hostText,
     signifierFor: signifierFor,
     dueLabel: dueLabel,
     buildRows: buildRows,

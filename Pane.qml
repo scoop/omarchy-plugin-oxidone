@@ -108,7 +108,7 @@ Item {
         for (var i = 0; i < lists.length; i++) {
             // A List title is a string from Google, reaching a Dropdown —
             // a host component this plugin cannot pin to PlainText.
-            out.push({ value: String(lists[i].id), label: Rows.plain(lists[i].title, 60) });
+            out.push({ value: String(lists[i].id), label: Rows.hostText(lists[i].title, 60) });
         }
         return out;
     }
@@ -249,7 +249,10 @@ Item {
         var lists = service && service.lists ? service.lists : [];
         for (var i = 0; i < lists.length; i++) {
             if (String(lists[i].id) === root.captureListId) {
-                return Rows.plain(lists[i].title, 40);
+                // This one ends up in `editorPlaceholder`, and a placeholder is
+                // drawn by the style's own Text, which pins no format. Nothing
+                // on this side can, either — so `hostText`, not `plain`.
+                return Rows.hostText(lists[i].title, 40);
             }
         }
         return "";
