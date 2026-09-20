@@ -411,7 +411,14 @@ Item {
         }
         root.editorTargetId = row.id;
         root.editorTargetList = row.list;
-        root._openEditor("due", row.due);
+        // Seeded only from a date this plugin recognises. `row.due` is whatever
+        // string oxidone printed in that field, and Enter on an unedited editor
+        // sends the seed onward to `oxidone json due` as an argument — the one
+        // argument this plugin passes at all. An unrecognised `due` opens the
+        // field empty instead: it is not a phrase anyone could sensibly edit,
+        // and refusing it leaves the only string that can reach argv one the
+        // person typed on purpose.
+        root._openEditor("due", Rows.isIsoDate(row.due) ? row.due : "");
     }
 
     function closeEditor() {

@@ -395,6 +395,14 @@ Item {
      * both steps instead of blinking back to normal in between.
      */
     function resolveAndSetDue(listId, taskId, expr) {
+        // First, before the request can even take the one-at-a-time slot: this
+        // is the only string this plugin puts in an argument list, and whether
+        // it is shaped like a date phrase is a question about the string alone,
+        // not about the binary or about what else is in flight.
+        if (!Rows.isDueExpr(expr)) {
+            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "not a date phrase");
+            return;
+        }
         if (!versionOk) {
             root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
             return;

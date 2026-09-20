@@ -321,11 +321,23 @@ exit-code channel, and a `json due` subcommand. Its template stays ASCII and
 backtick-free, and writes a literal `${` as an interpolated `"$"`, for the
 reasons its own header gives.
 
-**One user-typed string reaches argv**, the due expression, because `json due`
-takes it as an argument and there is no other route. Titles and ids stay on
-stdin. A date phrase is not a task title, the process lives milliseconds, and
-oxidone's `json` arg parsing joins everything after the subcommand verbatim, so
-a leading `-` is data rather than a flag.
+**One string reaches argv**, the due expression, because `json due` takes it as
+an argument and there is no other route. Titles and ids stay on stdin. That
+string is either what was typed into the date field or the date the entry
+already carried, which is what the field is seeded with — so it is not
+"user-typed" by construction, and the seed is shape-checked rather than
+trusted: `Rows.isIsoDate` admits exactly `YYYY-MM-DD`, and a `due` field of any
+other shape opens the field empty instead of travelling on unread. What is sent
+is bounded once more at `Service.resolveAndSetDue` by `Rows.isDueExpr` — 128
+characters, and nothing `plain()` would have had to replace — because past the
+seed the value is arbitrary typed text.
+
+What is deliberately absent is an argument separator. `oxidone json due` joins
+everything after the subcommand into the phrase verbatim, so `--` is parsed as
+part of the date (`could not parse due date: "-- tomorrow"`) and a leading `-`
+is data rather than a flag: `-3d` and `-1w` are legitimate relative dates this
+has to keep being able to send. A date phrase is not a task title and the
+process lives milliseconds.
 
 ## The mouse's route through the delete gate
 

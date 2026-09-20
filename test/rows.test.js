@@ -8,7 +8,10 @@ import {
   dueLabel,
   selectableIndexes,
   titleRole,
+  isIsoDate,
+  isDueExpr,
   MAX_TITLE,
+  MAX_DUE_EXPR,
 } from "../src/rows.js";
 
 const entry = (over) =>
@@ -281,4 +284,40 @@ test("a failed or armed row's title still answers only overdue-ness", () => {
   expect(titleRole(failedAndLate, false)).toBe("urgent");
   expect(titleRole(armed, false)).toBe("text");
   expect(titleRole(armedAndLate, false)).toBe("urgent");
+});
+
+// `isIsoDate` gates what the Pane's date editor is seeded with, and that seed
+// is the only value that can reach `oxidone json due` without anyone typing it.
+test("only an exact YYYY-MM-DD is a date this plugin will seed an editor from", () => {
+  expect(isIsoDate("2026-09-20")).toBe(true);
+  expect(isIsoDate("")).toBe(false);
+  expect(isIsoDate("tomorrow")).toBe(false);
+  expect(isIsoDate("-3d")).toBe(false);
+  // Not zero-padded, and so not the shape `apply set_due` takes either.
+  expect(isIsoDate("2026-9-20")).toBe(false);
+  expect(isIsoDate("2026-09-20T00:00")).toBe(false);
+  expect(isIsoDate("2026-09-20 ")).toBe(false);
+  // Written as an escape on purpose, for the reason `plain()`'s class is.
+  expect(isIsoDate("2026-09-20\u0000")).toBe(false);
+  expect(isIsoDate(undefined)).toBe(false);
+  expect(isIsoDate(null)).toBe(false);
+  expect(isIsoDate(20260920)).toBe(false);
+});
+
+// The other half: what may be sent, once a person has typed it.
+test("a date phrase is short and control-free, and a leading `-` is data", () => {
+  expect(isDueExpr("tomorrow")).toBe(true);
+  expect(isDueExpr("next tuesday")).toBe(true);
+  // The review's own recommendation — insert `--`, reject a leading `-` —
+  // would have refused these. Both are legitimate oxidone date syntax
+  // (`oxidone json due -3d` answers with a date), so both stay sendable.
+  expect(isDueExpr("-3d")).toBe(true);
+  expect(isDueExpr("-1w")).toBe(true);
+  expect(isDueExpr("")).toBe(false);
+  expect(isDueExpr("a".repeat(MAX_DUE_EXPR))).toBe(true);
+  expect(isDueExpr("a".repeat(MAX_DUE_EXPR + 1))).toBe(false);
+  expect(isDueExpr("tomorrow\u0007")).toBe(false);
+  expect(isDueExpr("tomorrow\nrm")).toBe(false);
+  expect(isDueExpr("tomorrow\u202Erm")).toBe(false);
+  expect(isDueExpr(undefined)).toBe(false);
 });

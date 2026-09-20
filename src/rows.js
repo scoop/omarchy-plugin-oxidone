@@ -57,6 +57,44 @@ function hostText(text, max) {
   return plain(text, max).replace(/[<>&]/g, " ");
 }
 
+// The one date shape this plugin recognises, and the only one it will seed a
+// date editor from.
+//
+// `src/today.js` tests the same shape on the way in, where it decides whether
+// an answer oxidone gave is usable. This is the way out: a `due` field is a
+// string oxidone printed, the Pane's `d` seeds the editor with it, and Enter on
+// an unedited editor puts that string in an argument list. Two copies rather
+// than one because neither module imports the other — each is loaded on its own
+// by the QML engine — and because the two answer different questions.
+var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isIsoDate(value) {
+  return typeof value === "string" && ISO_DATE.test(value);
+}
+
+/** Longest date phrase handed to `oxidone json due`. */
+var MAX_DUE_EXPR = 128;
+
+// What may become an argument to `oxidone json due`.
+//
+// The editor's own `maximumLength` is shared with capture and retitle, where a
+// long title is legitimate, so the bound on a date phrase belongs here instead:
+// "next tuesday" is twelve characters and nothing a person types into a date
+// field is near this cap.
+//
+// The character rule is `plain()`'s, reused rather than restated: if drawing
+// this string would have meant replacing something in it, it is not a string to
+// hand to another process either. Note what is deliberately *not* here — no `--`
+// and no refusal of a leading `-`. `oxidone json due` joins everything after
+// the subcommand into the phrase verbatim, so `--` becomes part of the date and
+// `-3d` is a date this has to keep being able to send.
+function isDueExpr(value) {
+  if (typeof value !== "string" || value === "" || value.length > MAX_DUE_EXPR) {
+    return false;
+  }
+  return plain(value, MAX_DUE_EXPR) === value;
+}
+
 // The Entry type's signifier, as the TUI draws it: an Event happens on a day,
 // a Note is a jotting, and a Task — the default — carries none.
 function signifierFor(type) {
@@ -227,8 +265,11 @@ function selectableIndexes(rows) {
 if (typeof module !== "undefined") {
   module.exports = {
     MAX_TITLE: MAX_TITLE,
+    MAX_DUE_EXPR: MAX_DUE_EXPR,
     plain: plain,
     hostText: hostText,
+    isIsoDate: isIsoDate,
+    isDueExpr: isDueExpr,
     signifierFor: signifierFor,
     dueLabel: dueLabel,
     buildRows: buildRows,

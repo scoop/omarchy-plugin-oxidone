@@ -165,10 +165,16 @@ a fixed minimal environment; oxidone is what talks to Google, using its own
 credentials. An `apply` command is written to that process's standard input,
 never passed as an argument, because a process's arguments are readable by
 every program running as you — so no task title and no task id ever appears in
-an argument list. Setting a due date runs one more read, `oxidone json due
-<what you typed>`, which is the one place a string you typed is passed as an
-argument: that subcommand takes it that way and there is no other route. It
-needs no credentials and makes no network request of its own. Opening the TUI from the pane runs
+an argument list. Setting a due date runs one more read, `oxidone json due <a date
+phrase>`, which is the one place this plugin passes a string as an argument:
+that subcommand takes it that way and there is no other route. The phrase is
+either what you typed into the date field or the date the entry already had,
+which is what the field opens seeded with — and it is seeded only when that
+date is exactly `YYYY-MM-DD`, so an entry whose date is anything else opens the
+field empty rather than putting an unread string in an argument list. Whatever
+the field holds is checked again before it is sent: at most 128 characters and
+no control characters, or nothing runs and the row says so. That read needs no
+credentials and makes no network request of its own. Opening the TUI from the pane runs
 `omarchy-launch-or-focus-tui` the same way: an absolute-path process, its
 argument passed as its own array element. Nothing in this plugin runs through
 a shell.
