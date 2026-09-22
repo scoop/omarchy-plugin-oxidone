@@ -92,7 +92,13 @@ Item {
     // change, never mutated — an in-place write would change the data and
     // update no binding in the Pane. Unlike Pending, a message outlives the
     // Apply that produced it, so there is nothing to derive it from.
-    property var applyErrors: ({})
+    //
+    // Null-prototype, like every map in this plugin whose keys come from
+    // outside it. An Entry id is whatever oxidone printed, and the Pane asks
+    // `applyErrors[row.id] !== undefined` — on a plain object an entry id of
+    // `constructor` answers that with Object's constructor, and the row draws a
+    // stringified function as its failure message.
+    property var applyErrors: Object.create(null)
 
     // Captures, keyed one per capture rather than by Entry id — a `create` has
     // no Entry to be keyed by, and the Pane's strip stays open for a run, so two
@@ -103,12 +109,20 @@ Item {
     // Deliberately not `applyErrors`: that map is pruned by comparing its keys
     // against the entry ids in a fresh answer, and a capture key is never an
     // entry id, so a failure parked there would never be cleared at all.
-    property var captures: ({})
+    property var captures: Object.create(null)
     property int captureSeq: 0
 
     // Past any burst a person can type, small enough that "queue full" is a
     // path that can actually be reached and tested.
     readonly property int applyQueueMax: 32
+
+    // The ids in `applyErrors`, oldest first — see `_putApplyError`.
+    property var applyErrorOrder: []
+
+    // How many failure messages are kept, for the same reason and at the same
+    // number as `captureFailureMax`: a run against a dead network must not grow
+    // either store without end, and five is more than a pane can usefully show.
+    readonly property int applyErrorMax: 5
 
     // How many settled capture failures are kept. A run against a dead network
     // must not grow this without end, and five is more than a strip can show.
@@ -265,18 +279,43 @@ Item {
         }
     }
 
-    // Assign, never mutate: see the note on applyErrors.
-    function _setApplyFlag(map, key, value) {
-        var next = {};
-        for (var existing in map) {
-            next[existing] = map[existing];
+    // Assign, never mutate — the rule `applyErrors` states, and the only
+    // writer of it. `message` of undefined removes the entry.
+    //
+    // Bounded here for the reason `_pruneCaptureFailures` exists: this Service
+    // is kept loaded for the life of the shell, and the only other pruning of
+    // `applyErrors` is `retainErrorsAbsentFrom`, which clears a message when
+    // its Entry id comes back in a fresh answer. A message against an id that
+    // never comes back — a row deleted elsewhere, a capture-chained id, a list
+    // no longer in scope — is otherwise kept until the shell stops.
+    function _putApplyError(key, message) {
+        var next = Object.create(null);
+        for (var existing in root.applyErrors) {
+            next[existing] = root.applyErrors[existing];
         }
-        if (value === undefined) {
+        // A map has no order to drop the oldest by, and unlike a capture
+        // record a message here is a bare string the Pane reads straight out,
+        // so there is nowhere inside the value to hang a sequence on. The order
+        // is kept beside the map instead, oldest first, and re-derived on every
+        // write so an id `retainErrorsAbsentFrom` has since cleared falls out.
+        var order = [];
+        for (var i = 0; i < root.applyErrorOrder.length; i++) {
+            var id = root.applyErrorOrder[i];
+            if (id !== key && next[id] !== undefined) {
+                order.push(id);
+            }
+        }
+        if (message === undefined) {
             delete next[key];
         } else {
-            next[key] = value;
+            next[key] = message;
+            order.push(key);
         }
-        return next;
+        while (order.length > root.applyErrorMax) {
+            delete next[order.shift()];
+        }
+        root.applyErrorOrder = order;
+        root.applyErrors = next;
     }
 
     // The title a List carries, for the one sentence that has to name one.
@@ -294,7 +333,7 @@ Item {
     // Assign, never mutate — the same rule `applyErrors` follows, for the same
     // reason. `record` of null removes the capture.
     function _putCapture(key, record) {
-        var next = {};
+        var next = Object.create(null);
         for (var existing in root.captures) {
             next[existing] = root.captures[existing];
         }
@@ -323,7 +362,7 @@ Item {
         failed.sort(function (a, b) {
             return a.seq - b.seq;
         });
-        var next = {};
+        var next = Object.create(null);
         for (var existing in root.captures) {
             next[existing] = root.captures[existing];
         }
@@ -335,7 +374,7 @@ Item {
 
     /** Drop every capture that has finished. The Pane calls this when its strip closes. */
     function clearSettledCaptures() {
-        var next = {};
+        var next = Object.create(null);
         for (var key in root.captures) {
             if (root.captures[key].pending) {
                 next[key] = root.captures[key];
@@ -352,7 +391,7 @@ Item {
     // is the only thing that decides which one a message lands in.
     function _reportFailure(entry, message) {
         if (!entry.capture) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, entry.key, message);
+            root._putApplyError(entry.key, message);
             return;
         }
         var record = root.captures[entry.key];
@@ -395,12 +434,20 @@ Item {
      * both steps instead of blinking back to normal in between.
      */
     function resolveAndSetDue(listId, taskId, expr) {
+        // First, before the request can even take the one-at-a-time slot: this
+        // is the only string this plugin puts in an argument list, and whether
+        // it is shaped like a date phrase is a question about the string alone,
+        // not about the binary or about what else is in flight.
+        if (!Rows.isDueExpr(expr)) {
+            root._putApplyError(taskId, "not a date phrase");
+            return;
+        }
         if (!versionOk) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "no usable oxidone");
+            root._putApplyError(taskId, "no usable oxidone");
             return;
         }
         if (root.dueRequest !== null || dueProc.running) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, taskId, "one date at a time");
+            root._putApplyError(taskId, "one date at a time");
             return;
         }
         root.clearApplyError(taskId);
@@ -419,7 +466,7 @@ Item {
 
     function clearApplyError(entryId) {
         if (root.applyErrors[entryId] !== undefined) {
-            root.applyErrors = root._setApplyFlag(root.applyErrors, entryId, undefined);
+            root._putApplyError(entryId, undefined);
         }
     }
 
@@ -834,7 +881,7 @@ Item {
             }
             if (asked.epoch !== root.epoch) {
                 console.warn("oxidone: due answered from a binary we no longer use");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(1));
+                root._putApplyError(asked.task, Apply.messageForExit(1));
                 return;
             }
             if (code !== 0 || tooLarge) {
@@ -842,13 +889,13 @@ Item {
                 console.warn("oxidone: due failed, exit", code, kind !== "" ? "(" + kind + ")" : "");
                 // Exit 2 here is `invalid_due` and nothing else, which is worth
                 // saying: the phrase was not a date, not malformed a request.
-                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(tooLarge ? 1 : code, "due"));
+                root._putApplyError(asked.task, Apply.messageForExit(tooLarge ? 1 : code, "due"));
                 return;
             }
             var due = Today.parseDue(out);
             if (due === null) {
                 console.warn("oxidone: due answered with something unreadable");
-                root.applyErrors = root._setApplyFlag(root.applyErrors, asked.task, Apply.messageForExit(1));
+                root._putApplyError(asked.task, Apply.messageForExit(1));
                 return;
             }
             root.applyOp("set_due", { list: asked.list, task: asked.task, due: due });
@@ -944,7 +991,7 @@ Item {
                 var deleted = Apply.parseDeleted(out);
                 if (deleted === null) {
                     console.warn("oxidone: apply delete answered with something unreadable");
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.key, Apply.messageForExit(1));
+                    root._putApplyError(sent.key, Apply.messageForExit(1));
                     root.drainApply();
                     return;
                 }
@@ -952,7 +999,7 @@ Item {
                     // Answered for an Entry we did not send. Folding this would
                     // remove the wrong row from both Snapshots — fail closed.
                     console.warn("oxidone: apply delete answered for a different entry than sent");
-                    root.applyErrors = root._setApplyFlag(root.applyErrors, sent.key, Apply.messageForExit(1));
+                    root._putApplyError(sent.key, Apply.messageForExit(1));
                     root.drainApply();
                     return;
                 }

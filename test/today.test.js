@@ -8,6 +8,7 @@ import {
   hasOverdue,
   MAX_ENTRIES,
   MAX_LISTS,
+  MAX_FIELD,
 } from "../src/today.js";
 
 const entry = (over) =>
@@ -194,4 +195,43 @@ test("parseDue refuses anything apply set_due could not hold", () => {
   ]) {
     expect(parseDue(bad)).toBe(null);
   }
+});
+
+test("an entry with a field past the per-field cap is refused, not truncated", () => {
+  // The process's byte ceiling bounds the whole answer, not one field inside a
+  // sound envelope. Each of these is a string this plugin carries somewhere
+  // else — into a map key, an editor seed, or an `apply` payload.
+  for (const field of ["id", "list", "parent", "title", "display_title", "due"]) {
+    const over = JSON.stringify({
+      today: "2026-07-20",
+      entries: [entry({ [field]: "x".repeat(MAX_FIELD + 1) })],
+    });
+    expect(() => parseToday(over)).toThrow(/oversized/);
+
+    const overList = JSON.stringify({
+      list: "L",
+      entries: [entry({ [field]: "x".repeat(MAX_FIELD + 1) })],
+    });
+    expect(() => parseList(overList)).toThrow(/oversized/);
+  }
+
+  // Exactly at the cap is still an answer. Google's own title limit is 1024,
+  // so this refuses nothing an account could actually hold.
+  const atCap = JSON.stringify({
+    today: "2026-07-20",
+    entries: [entry({ display_title: "x".repeat(MAX_FIELD) })],
+  });
+  expect(parseToday(atCap).entries).toHaveLength(1);
+});
+
+test("a list whose id or title is past the cap is dropped, not carried", () => {
+  const answer = JSON.stringify({
+    lists: [
+      { id: "L1", title: "Work" },
+      { id: "L2", title: "x".repeat(MAX_FIELD + 1) },
+      { id: "x".repeat(MAX_FIELD + 1), title: "Home" },
+    ],
+    default_list: "L1",
+  });
+  expect(parseLists(answer).lists.map((l) => l.id)).toEqual(["L1"]);
 });

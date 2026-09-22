@@ -1,13 +1,17 @@
 import { test, expect } from "bun:test";
 import {
   plain,
+  hostText,
   buildRows,
   buildListRows,
   signifierFor,
   dueLabel,
   selectableIndexes,
   titleRole,
+  isIsoDate,
+  isDueExpr,
   MAX_TITLE,
+  MAX_DUE_EXPR,
 } from "../src/rows.js";
 
 const entry = (over) =>
@@ -51,6 +55,52 @@ test("a title longer than the cap is elided rather than passed through", () => {
 test("a missing title is an empty string, not the word undefined", () => {
   expect(plain(undefined)).toBe("");
   expect(plain(null)).toBe("");
+});
+
+test("plain() leaves markup characters alone, because its own sinks are pinned", () => {
+  // The row titles plain() feeds are drawn in Text.PlainText elements this
+  // plugin owns. A task really named "A & B" has to keep reading that way.
+  expect(plain("A & B")).toBe("A & B");
+  expect(plain("a <b> c")).toBe("a <b> c");
+});
+
+test("hostText neutralises the markup a host component would parse", () => {
+  // The placeholder and the Dropdown label are drawn by someone else's Text,
+  // which pins no textFormat — so AutoText would read this as an image tag
+  // and the shell process would fetch it.
+  expect(hostText('<img src="http://example.invalid/x.png">')).toBe(
+    ' img src="http://example.invalid/x.png" ',
+  );
+  expect(hostText("A & B")).toBe("A   B");
+  expect(hostText("&lt;b&gt;")).toBe(" lt;b gt;");
+});
+
+test("hostText keeps everything plain() does: controls, cap, surrogate pairs", () => {
+  expect(hostText("a\u0007b")).toBe("a b");
+  expect(hostText("a\u202Eb")).toBe("a b");
+  expect(hostText(undefined)).toBe("");
+  expect(hostText(null)).toBe("");
+
+  const capped = hostText("<".repeat(MAX_TITLE + 50));
+  expect(capped.length).toBe(MAX_TITLE);
+  expect(capped.endsWith("…")).toBe(true);
+  expect(capped.indexOf("<")).toBe(-1);
+
+  expect(hostText("x".repeat(20), 10)).toBe("x".repeat(9) + "…");
+
+  const pair = hostText("x".repeat(MAX_TITLE - 2) + String.fromCodePoint(0x1f600) + "y");
+  expect(pair.length).toBeLessThanOrEqual(MAX_TITLE);
+  for (let i = 0; i < pair.length; i++) {
+    const c = pair.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = pair.charCodeAt(i + 1);
+      expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) {
+      const prev = pair.charCodeAt(i - 1);
+      expect(prev >= 0xd800 && prev <= 0xdbff).toBe(true);
+    }
+  }
 });
 
 test("an entry type carries its signifier, a Task carries none", () => {
@@ -168,6 +218,27 @@ test("a list's rows keep the CLI's order and nest one level", () => {
   expect(rows.map((r) => r.depth)).toEqual([0, 1, 0]);
 });
 
+test("a parent id off Object.prototype nests like any other, and throws nothing", () => {
+  // `parent` is a string oxidone printed. On a plain object `byParent`,
+  // `byParent["__proto__"]` is Object's prototype rather than a slot an array
+  // can be assigned to, so the push threw a TypeError inside the `rows`
+  // binding — which takes the pane's whole list down until the scope changes.
+  const build = () =>
+    buildListRows({
+      list: "L",
+      entries: [
+        entry({ id: "__proto__", due: null }),
+        entry({ id: "c1", parent: "__proto__", due: null }),
+        entry({ id: "constructor", due: null }),
+        entry({ id: "c2", parent: "constructor", due: null }),
+      ],
+    });
+  expect(build).not.toThrow();
+  const rows = build();
+  expect(rows.map((r) => r.id)).toEqual(["__proto__", "c1", "constructor", "c2"]);
+  expect(rows.map((r) => r.depth)).toEqual([0, 1, 0, 1]);
+});
+
 test("a list row is never overdue, because a list is not a day", () => {
   const rows = buildListRows({ list: "L", entries: [entry({ due: "2020-01-01" })] });
   expect(rows[0].overdue).toBe(false);
@@ -234,4 +305,40 @@ test("a failed or armed row's title still answers only overdue-ness", () => {
   expect(titleRole(failedAndLate, false)).toBe("urgent");
   expect(titleRole(armed, false)).toBe("text");
   expect(titleRole(armedAndLate, false)).toBe("urgent");
+});
+
+// `isIsoDate` gates what the Pane's date editor is seeded with, and that seed
+// is the only value that can reach `oxidone json due` without anyone typing it.
+test("only an exact YYYY-MM-DD is a date this plugin will seed an editor from", () => {
+  expect(isIsoDate("2026-09-20")).toBe(true);
+  expect(isIsoDate("")).toBe(false);
+  expect(isIsoDate("tomorrow")).toBe(false);
+  expect(isIsoDate("-3d")).toBe(false);
+  // Not zero-padded, and so not the shape `apply set_due` takes either.
+  expect(isIsoDate("2026-9-20")).toBe(false);
+  expect(isIsoDate("2026-09-20T00:00")).toBe(false);
+  expect(isIsoDate("2026-09-20 ")).toBe(false);
+  // Written as an escape on purpose, for the reason `plain()`'s class is.
+  expect(isIsoDate("2026-09-20\u0000")).toBe(false);
+  expect(isIsoDate(undefined)).toBe(false);
+  expect(isIsoDate(null)).toBe(false);
+  expect(isIsoDate(20260920)).toBe(false);
+});
+
+// The other half: what may be sent, once a person has typed it.
+test("a date phrase is short and control-free, and a leading `-` is data", () => {
+  expect(isDueExpr("tomorrow")).toBe(true);
+  expect(isDueExpr("next tuesday")).toBe(true);
+  // The review's own recommendation — insert `--`, reject a leading `-` —
+  // would have refused these. Both are legitimate oxidone date syntax
+  // (`oxidone json due -3d` answers with a date), so both stay sendable.
+  expect(isDueExpr("-3d")).toBe(true);
+  expect(isDueExpr("-1w")).toBe(true);
+  expect(isDueExpr("")).toBe(false);
+  expect(isDueExpr("a".repeat(MAX_DUE_EXPR))).toBe(true);
+  expect(isDueExpr("a".repeat(MAX_DUE_EXPR + 1))).toBe(false);
+  expect(isDueExpr("tomorrow\u0007")).toBe(false);
+  expect(isDueExpr("tomorrow\nrm")).toBe(false);
+  expect(isDueExpr("tomorrow\u202Erm")).toBe(false);
+  expect(isDueExpr(undefined)).toBe(false);
 });

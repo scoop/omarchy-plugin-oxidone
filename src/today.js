@@ -12,6 +12,33 @@
 // than counted into a number the bar then displays as fact.
 var MAX_ENTRIES = 5000;
 
+// The process's byte ceiling bounds how much of an answer arrives; it bounds no
+// single field inside one. A quarter of a megabyte spent on one title is a
+// sound-looking envelope whose one entry is then carried by a row, by an editor
+// seed and by an `apply` payload alike. Google's own limit for a task title is
+// 1024 characters, so nothing an account can hold comes near this.
+//
+// Refused whole rather than truncated, for the reason `rawTitle` exists: a
+// title shortened here and saved back by `retitle` is a silent edit to
+// someone's data, and a shortened id is a write aimed at the wrong entry.
+var MAX_FIELD = 4096;
+
+// Every field of an entry this plugin reads as a string. `parent` and `id` key
+// maps, `display_title` seeds the rename editor, `due` seeds the date editor
+// and can reach argv, `list` and `title` are carried into `apply` payloads.
+var BOUNDED_FIELDS = ["id", "list", "parent", "title", "display_title", "due"];
+
+// The name of the first field past the ceiling, or "" when the entry is sound.
+function oversizedField(entry) {
+  for (var f = 0; f < BOUNDED_FIELDS.length; f++) {
+    var name = BOUNDED_FIELDS[f];
+    if (typeof entry[name] === "string" && entry[name].length > MAX_FIELD) {
+      return name;
+    }
+  }
+  return "";
+}
+
 function parseToday(stdout) {
   var payload = JSON.parse(stdout);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -30,6 +57,10 @@ function parseToday(stdout) {
     var entry = payload.entries[i];
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error("today: entry " + i + " is not an object");
+    }
+    var oversized = oversizedField(entry);
+    if (oversized !== "") {
+      throw new Error("today: entry " + i + " has an oversized `" + oversized + "`");
     }
   }
   return payload;
@@ -56,6 +87,10 @@ function parseList(stdout) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error("tasks: entry " + i + " is not an object");
     }
+    var oversized = oversizedField(entry);
+    if (oversized !== "") {
+      throw new Error("tasks: entry " + i + " has an oversized `" + oversized + "`");
+    }
   }
   return payload;
 }
@@ -76,7 +111,11 @@ function usableList(value) {
     !Array.isArray(value) &&
     typeof value.id === "string" &&
     value.id !== "" &&
-    typeof value.title === "string"
+    value.id.length <= MAX_FIELD &&
+    typeof value.title === "string" &&
+    // Dropped rather than refused, like every other unusable list: a title this
+    // long is not one the selector could put on screen anyway.
+    value.title.length <= MAX_FIELD
   );
 }
 
@@ -163,6 +202,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     MAX_ENTRIES: MAX_ENTRIES,
     MAX_LISTS: MAX_LISTS,
+    MAX_FIELD: MAX_FIELD,
     parseToday: parseToday,
     parseList: parseList,
     parseLists: parseLists,

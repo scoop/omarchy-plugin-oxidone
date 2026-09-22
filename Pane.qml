@@ -108,7 +108,7 @@ Item {
         for (var i = 0; i < lists.length; i++) {
             // A List title is a string from Google, reaching a Dropdown —
             // a host component this plugin cannot pin to PlainText.
-            out.push({ value: String(lists[i].id), label: Rows.plain(lists[i].title, 60) });
+            out.push({ value: String(lists[i].id), label: Rows.hostText(lists[i].title, 60) });
         }
         return out;
     }
@@ -249,7 +249,10 @@ Item {
         var lists = service && service.lists ? service.lists : [];
         for (var i = 0; i < lists.length; i++) {
             if (String(lists[i].id) === root.captureListId) {
-                return Rows.plain(lists[i].title, 40);
+                // This one ends up in `editorPlaceholder`, and a placeholder is
+                // drawn by the style's own Text, which pins no format. Nothing
+                // on this side can, either — so `hostText`, not `plain`.
+                return Rows.hostText(lists[i].title, 40);
             }
         }
         return "";
@@ -408,7 +411,14 @@ Item {
         }
         root.editorTargetId = row.id;
         root.editorTargetList = row.list;
-        root._openEditor("due", row.due);
+        // Seeded only from a date this plugin recognises. `row.due` is whatever
+        // string oxidone printed in that field, and Enter on an unedited editor
+        // sends the seed onward to `oxidone json due` as an argument — the one
+        // argument this plugin passes at all. An unrecognised `due` opens the
+        // field empty instead: it is not a phrase anyone could sensibly edit,
+        // and refusing it leaves the only string that can reach argv one the
+        // person typed on purpose.
+        root._openEditor("due", Rows.isIsoDate(row.due) ? row.due : "");
     }
 
     function closeEditor() {
@@ -859,13 +869,21 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "j/k move · h/l scope · space done · a add · e rename · d due · m migrate · x delete · esc close"
+                        // Each key is bound to its verb with U+00A0, written as
+                        // an escape because a literal one is invisible in source
+                        // and the next person would delete it by accident. The
+                        // wrap below is deliberate; what it must not do is break
+                        // a pair, which it did — leaving a line ending in a bare
+                        // "m" and the next starting "migrate", reading as two
+                        // hints that are one.
+                        text: "j/k\u00a0move · h/l\u00a0scope · space\u00a0done · a\u00a0add · e\u00a0rename · d\u00a0due · m\u00a0migrate · x\u00a0delete · esc\u00a0close"
                         color: Color.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
                         // Nine verbs do not fit one line at the card's clamped
                         // width, and eliding one would hide a key rather than
-                        // shorten a sentence.
+                        // shorten a sentence. Breaks now fall only on the
+                        // separators.
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
                     }
