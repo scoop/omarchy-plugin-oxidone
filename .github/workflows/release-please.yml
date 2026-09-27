@@ -23,9 +23,66 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      # No actions/checkout: the action reads commits and writes the release PR
-      # entirely through the GitHub API, so a working copy would go unused.
+      # Only so the link step can read the plugin id out of manifest.json rather
+      # than carry a second copy of it. release-please itself works entirely
+      # through the GitHub API.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
+
+      # Nothing in Omarchy reads a tag: the marketplace verifies an exact commit,
+      # and that has to be the tagged one, or the review is stale on arrival.
+      # The form's acknowledgment checkboxes cannot be prefilled, and are meant
+      # for a person anyway, so publish a link with everything else filled in.
+      - name: Marketplace verification link
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          [[ -n "$TAG" ]] || { echo "release-please reported a release but no tag name"; exit 1; }
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "release-please gave no full tagged SHA: '$SHA'"; exit 1; }
+
+          enc() { printf %s "$1" | jq -sRr @uri; }
+
+          plugin_id=$(jq -r .id manifest.json)
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+
+          url="$GITHUB_SERVER_URL/omacom/omarchy-plugin-marketplace/issues/new?template=verify-plugin.yml"
+          url="$url&title=$(enc "[Verify]: $plugin_id $TAG")"
+          url="$url&verification-action=$(enc "Verify and publish a newer upstream commit")"
+          url="$url&plugin-id=$(enc "$plugin_id")"
+          url="$url&repository=$(enc "$repo_url")"
+          url="$url&target-commit=$(enc "$SHA")"
+
+          {
+            echo "## Marketplace verification"
+            echo
+            echo "\`$TAG\` is tagged at \`$SHA\`. Any later push to main outruns it."
+            echo
+            echo "[Open the prefilled verification issue]($url), tick the acknowledgment and submit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Same link on the release itself, where it outlives the run and is
+          # where someone looks for "which commit is this version".
+          notes=$(mktemp)
+          gh release view "$TAG" --json body --jq .body > "$notes"
+          # A re-run must not append it twice.
+          if grep -qF "$SHA" "$notes"; then
+            echo "Release $TAG already names $SHA"
+            exit 0
+          fi
+          # Two leading newlines, not one: a bare --- right under text is a
+          # setext heading, and the body may or may not end in a newline.
+          printf '\n\n---\n\n%s\n' \
+            "<sub>Maintainer: [submit \`$SHA\` for marketplace verification]($url). Any later push to main outruns it.</sub>" >> "$notes"
+          gh release edit "$TAG" --notes-file "$notes"
