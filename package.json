@@ -22,7 +22,7 @@
     "@commitlint/config-conventional": "^21.2.3",
     "@types/bun": "^1.4.3",
     "eslint": "^10",
-    "fallow": "^3.32.0",
+    "fallow": "^3.33.1",
     "husky": "^9",
     "lint-staged": "^17",
     "prettier": "^3",
